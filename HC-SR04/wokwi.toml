@@ -1,0 +1,4 @@
+[wokwi]
+version = 1
+firmware = './HC-SR04.ino.bin'
+elf = './HC-SR04.ino.elf'

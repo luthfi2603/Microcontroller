@@ -8,6 +8,7 @@
 #define TRIG_PIN 12
 #define ECHO_PIN 14
 #define LED_PIN 23
+#define LED_PIN_ESP 2
 #define BUZZER_PIN 19
 
 // WiFi
@@ -23,27 +24,29 @@
 #define MQTT_TOPIC "v1/devices/me/telemetry" // untuk publish
 #define MQTT_TOPIC_2 "v1/devices/me/rpc/request/+" // untuk subscribe menerima data dari RPC
 String MQTT_TOPIC_3 = "v1/devices/me/rpc/response/"; // untuk publish response dari RPC
+#define MQTT_TOPIC_5 "v1/devices/me/attributes" // untuk publish response dari RPC
 
 // Variable declaration
 uint32_t currentTime, pollingTime = 0;
 unsigned long duration;
 float distanceCm = 100;
 // float distanceInch;
-bool wailing = false, rpcState = false;
-unsigned int frequency = 600;
-unsigned int lastToneChange, currentTime2;
+bool wailing = false, rpcState = false, innerLedState = false;
+unsigned int frequency = 600, lastToneChange, currentTime2, telemetryPeriod = 2000, teleTime = 0;
 int direction = 1;
+String publishMessage = "";
 
 WiFiClient espClient;
 PubSubClient client(espClient);
 
 void callback(char* topic, byte* payload, unsigned int length) {
   String message = "";
+  String topicStr = String(topic);
   Serial.print("Message arrived in topic: ");
   Serial.println(topic);
   Serial.print("Message: ");
-  int requestIdPos = String(topic).indexOf("v1/devices/me/rpc/request/") + 26;
-  String requestIdStr = String(topic).substring(requestIdPos);
+  int requestIdPos = topicStr.indexOf("v1/devices/me/rpc/request/") + 26;
+  String requestIdStr = topicStr.substring(requestIdPos);
   String MQTT_TOPIC_4 = MQTT_TOPIC_3 + requestIdStr;
   for (int i = 0; i < length; i++) {
     message += (char)payload[i];
@@ -54,16 +57,42 @@ void callback(char* topic, byte* payload, unsigned int length) {
   // Serial.println(requestIdStr);
   // Serial.println(MQTT_TOPIC_4);
   String responseRpc = "{\"";
-  responseRpc += message.substring((message.indexOf("pin") + 5), (message.indexOf("pin") + 6)) + "\":";
-  if (message.substring(message.indexOf("enabled") + 9) == "true}}") {
-    responseRpc += "true}";
-    rpcState = true;
-  } else {
-    responseRpc += "false}";
-    rpcState = false;
+  if(topicStr.indexOf("rpc") != -1){
+    if (message.indexOf("setGpioStatus") >= 0) {
+      if (message.substring(message.indexOf("enabled") + 9) == "true}}") {
+        responseRpc += message.substring((message.indexOf("pin") + 5), (message.indexOf("pin") + 6)) + "\":";
+        responseRpc += "true}";
+        rpcState = true;
+      } else {
+        responseRpc += message.substring((message.indexOf("pin") + 5), (message.indexOf("pin") + 6)) + "\":";
+        responseRpc += "false}";
+        rpcState = false;
+      }
+    } else {
+      if (message.substring(message.indexOf("params") + 8) == "true}") {
+        responseRpc += "params\":true}";
+        innerLedState = true;
+      } else {
+        responseRpc += "params\":false}";
+        innerLedState = false;
+      }
+    }
+
+    Serial.println(responseRpc);
+    client.publish(&MQTT_TOPIC_4[0], &responseRpc[0]);
+  }else if(topicStr.indexOf("attributes") != -1){
+    int attributePos = message.indexOf("tele_period");
+
+    if(attributePos != -1){
+      attributePos += 13;
+
+      // int endingChar = message.substring("}", attributePos);
+      telemetryPeriod = message.substring(attributePos).toInt();
+      Serial.print("Telemetry Publish Period : ");
+      Serial.println(telemetryPeriod);
+    }
   }
-  Serial.println(responseRpc);
-  client.publish(&MQTT_TOPIC_4[0], &responseRpc[0]);
+
   Serial.println("-----------------------");
 }
 
@@ -155,11 +184,11 @@ void setup() {
     }
   }
 
-  // Publish and subscribe
-  // client.publish(topic, "Hi, I'm ESP32 ^^");
-  client.subscribe(MQTT_TOPIC_2);
+  client.subscribe(MQTT_TOPIC_2); // rpc subscribe
+  client.subscribe(MQTT_TOPIC_5); // telemetry period subscribe
 
   pinMode(LED_PIN, OUTPUT);
+  pinMode(LED_PIN_ESP, OUTPUT);
 }
 
 void loop() {
@@ -207,12 +236,22 @@ void loop() {
     Serial.print("Distance (inch): ");
     Serial.println(distanceInch); */
 
-    String publishMessage = "{\"jarak\":" + String(distanceCm) + "}";
-    client.publish(MQTT_TOPIC, &publishMessage[0]);
-
     Serial.print(pollingTime / 1000);
     Serial.print("s : ");
-    Serial.println(publishMessage);
+    Serial.print(distanceCm);
+    Serial.println("cm");
+
+    if(currentTime - teleTime >= telemetryPeriod){
+      teleTime = currentTime;
+
+      publishMessage = "{\"jarak\":" + String(distanceCm) + "}";
+      client.publish(MQTT_TOPIC, &publishMessage[0]);
+
+      Serial.print(teleTime / 1000);
+      Serial.print("s : ");
+      Serial.print("Publish ");
+      Serial.println(publishMessage);
+    }
   }
 
   if (distanceCm <= 30 || rpcState) {
@@ -223,5 +262,12 @@ void loop() {
     noTone(BUZZER_PIN);
     frequency = 600;
     direction = 1;
+    wailing = false;
+  }
+
+  if (innerLedState) {
+    digitalWrite(LED_PIN_ESP, HIGH);
+  } else {
+    digitalWrite(LED_PIN_ESP, LOW);
   }
 }

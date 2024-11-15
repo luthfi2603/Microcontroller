@@ -14,6 +14,8 @@
 // WiFi
 #define WIFI_SSID "Wokwi-GUEST"
 #define WIFI_PASSWORD ""
+/* #define WIFI_SSID "Redmi Note 13 Pro 5G"
+#define WIFI_PASSWORD "12121212" */
 
 // MQTT Broker
 #define MQTT_BROKER "202.0.107.154"
@@ -24,16 +26,18 @@
 #define MQTT_TOPIC "v1/devices/me/telemetry" // untuk publish
 #define MQTT_TOPIC_2 "v1/devices/me/rpc/request/+" // untuk subscribe menerima data dari RPC
 String MQTT_TOPIC_3 = "v1/devices/me/rpc/response/"; // untuk publish response dari RPC
-#define MQTT_TOPIC_5 "v1/devices/me/attributes" // untuk publish response dari RPC
+#define MQTT_TOPIC_5 "v1/devices/me/attributes" // untuk subscribe atribut dari server
+#define MQTT_TOPIC_6 "v1/devices/me/attributes/request/" // untuk publish request atribut ke server
+#define MQTT_TOPIC_7 "v1/devices/me/attributes/response/+" // untuk subscribe atribut dari server cara lain
 
 // Variable declaration
-uint32_t currentTime, pollingTime = 0;
+uint32_t currentTime, pollingTime = 0, requestAttributeId = 1;
 unsigned long duration;
 float distanceCm = 100;
 // float distanceInch;
 bool wailing = false, rpcState = false, innerLedState = false;
 unsigned int frequency = 600, lastToneChange, currentTime2, telemetryPeriod = 2000, teleTime = 0;
-int direction = 1;
+int8_t direction = 1;
 String publishMessage = "";
 
 WiFiClient espClient;
@@ -42,22 +46,21 @@ PubSubClient client(espClient);
 void callback(char* topic, byte* payload, unsigned int length) {
   String message = "";
   String topicStr = String(topic);
-  Serial.print("Message arrived in topic: ");
-  Serial.println(topic);
-  Serial.print("Message: ");
-  int requestIdPos = topicStr.indexOf("v1/devices/me/rpc/request/") + 26;
-  String requestIdStr = topicStr.substring(requestIdPos);
-  String MQTT_TOPIC_4 = MQTT_TOPIC_3 + requestIdStr;
+
   for (int i = 0; i < length; i++) {
     message += (char)payload[i];
     // Serial.print((char)payload[i]);
   }
+
+  Serial.println("--------------------------------");
+  Serial.print("Message arrived in topic: ");
+  Serial.println(topic);
+  Serial.print("Message: ");
   Serial.println(message);
-  // Serial.println(requestIdPos);
-  // Serial.println(requestIdStr);
-  // Serial.println(MQTT_TOPIC_4);
-  String responseRpc = "{\"";
+
   if(topicStr.indexOf("rpc") != -1){
+    String responseRpc = "{\"";
+
     if (message.indexOf("setGpioStatus") >= 0) {
       if (message.substring(message.indexOf("enabled") + 9) == "true}}") {
         responseRpc += message.substring((message.indexOf("pin") + 5), (message.indexOf("pin") + 6)) + "\":";
@@ -78,6 +81,14 @@ void callback(char* topic, byte* payload, unsigned int length) {
       }
     }
 
+    int requestIdPos = topicStr.indexOf("v1/devices/me/rpc/request/") + 26;
+    String requestIdStr = topicStr.substring(requestIdPos);
+    String MQTT_TOPIC_4 = MQTT_TOPIC_3 + requestIdStr;
+
+    // Serial.println(requestIdPos);
+    // Serial.println(requestIdStr);
+    // Serial.println(MQTT_TOPIC_4);
+
     Serial.println(responseRpc);
     client.publish(&MQTT_TOPIC_4[0], &responseRpc[0]);
   }else if(topicStr.indexOf("attributes") != -1){
@@ -93,7 +104,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
     }
   }
 
-  Serial.println("-----------------------");
+  Serial.println("--------------------------------");
 }
 
 void reconnect() {
@@ -186,6 +197,11 @@ void setup() {
 
   client.subscribe(MQTT_TOPIC_2); // rpc subscribe
   client.subscribe(MQTT_TOPIC_5); // telemetry period subscribe
+  client.subscribe(MQTT_TOPIC_7); // attribute request -> response subscribe
+
+  String MQTT_TOPIC_8 = MQTT_TOPIC_6 + String(requestAttributeId);
+  client.publish(MQTT_TOPIC_8.c_str(),"{\"clientKeys\":\"cliattr1,cliattr2\",\"sharedKeys\":\"tele_period,sharedattr2\"}");
+  requestAttributeId++;
 
   pinMode(LED_PIN, OUTPUT);
   pinMode(LED_PIN_ESP, OUTPUT);

@@ -23,12 +23,12 @@
 #define MQTT_USERNAME "zsxetv8eaqrewlq5ztaj"
 #define MQTT_PASSWORD "b1kjtw5mabmba3sjmwgx"
 #define MQTT_PORT 1983
-#define MQTT_TOPIC "v1/devices/me/telemetry" // untuk publish
-#define MQTT_TOPIC_2 "v1/devices/me/rpc/request/+" // untuk subscribe menerima data dari RPC
-String MQTT_TOPIC_3 = "v1/devices/me/rpc/response/"; // untuk publish response dari RPC
-#define MQTT_TOPIC_5 "v1/devices/me/attributes" // untuk subscribe atribut dari server
-#define MQTT_TOPIC_6 "v1/devices/me/attributes/request/" // untuk publish request atribut ke server
-#define MQTT_TOPIC_7 "v1/devices/me/attributes/response/+" // untuk subscribe atribut dari server cara lain
+#define MQTT_TOPIC_TELE_PUB "v1/devices/me/telemetry" // untuk publish
+#define MQTT_TOPIC_RPC_REQ_SUB "v1/devices/me/rpc/request/+" // untuk RPC (remote procedural call) menerima data/perintah dari server
+String MQTT_TOPIC_BASE_RPC_RESP_PUB = "v1/devices/me/rpc/response/"; // untuk publish response dari RPC
+#define MQTT_TOPIC_ATTR_SUB "v1/devices/me/attributes" // untuk subscribe atribut dari server
+#define MQTT_TOPIC_BASE_ATTR_REPL_REQ_PUB "v1/devices/me/attributes/request/" // untuk publish request atribut ke server
+#define MQTT_TOPIC_ATTR_REPL_SUB "v1/devices/me/attributes/response/+" // untuk subscribe atribut dari server cara lain
 
 // Variable declaration
 uint32_t currentTime, pollingTime = 0, requestAttributeId = 1;
@@ -83,14 +83,14 @@ void callback(char* topic, byte* payload, unsigned int length) {
 
     int requestIdPos = topicStr.indexOf("v1/devices/me/rpc/request/") + 26;
     String requestIdStr = topicStr.substring(requestIdPos);
-    String MQTT_TOPIC_4 = MQTT_TOPIC_3 + requestIdStr;
+    String MQTT_TOPIC_RPC_RESP_PUB = MQTT_TOPIC_BASE_RPC_RESP_PUB + requestIdStr;
 
     // Serial.println(requestIdPos);
     // Serial.println(requestIdStr);
-    // Serial.println(MQTT_TOPIC_4);
+    // Serial.println(MQTT_TOPIC_RPC_RESP_PUB);
 
     Serial.println(responseRpc);
-    client.publish(&MQTT_TOPIC_4[0], &responseRpc[0]);
+    client.publish(&MQTT_TOPIC_RPC_RESP_PUB[0], &responseRpc[0]);
   }else if(topicStr.indexOf("attributes") != -1){
     int attributePos = message.indexOf("tele_period");
 
@@ -115,7 +115,7 @@ void reconnect() {
     if (client.connect(MQTT_CLIENT_ID)) {
       Serial.println("connected");
       // Subscribe to the temperature topic
-      client.subscribe(MQTT_TOPIC_2);
+      client.subscribe(MQTT_TOPIC_RPC_REQ_SUB);
     } else {
       Serial.print("failed with state ");
       Serial.print(client.state());
@@ -195,13 +195,13 @@ void setup() {
     }
   }
 
-  client.subscribe(MQTT_TOPIC_2); // rpc subscribe
-  client.subscribe(MQTT_TOPIC_5); // telemetry period subscribe
-  client.subscribe(MQTT_TOPIC_7); // attribute request -> response subscribe
-
-  String MQTT_TOPIC_8 = MQTT_TOPIC_6 + String(requestAttributeId);
-  client.publish(MQTT_TOPIC_8.c_str(),"{\"clientKeys\":\"cliattr1,cliattr2\",\"sharedKeys\":\"tele_period,sharedattr2\"}");
+  String MQTT_TOPIC_ATTR_REPL_REQ_PUB = MQTT_TOPIC_BASE_ATTR_REPL_REQ_PUB + String(requestAttributeId);
+  client.publish(MQTT_TOPIC_ATTR_REPL_REQ_PUB.c_str(),"{\"clientKeys\":\"cliattr1,cliattr2\",\"sharedKeys\":\"tele_period,sharedattr2\"}");
   requestAttributeId++;
+
+  client.subscribe(MQTT_TOPIC_RPC_REQ_SUB); // rpc subscribe
+  client.subscribe(MQTT_TOPIC_ATTR_SUB); // telemetry period subscribe
+  client.subscribe(MQTT_TOPIC_ATTR_REPL_SUB); // attribute request -> response subscribe
 
   pinMode(LED_PIN, OUTPUT);
   pinMode(LED_PIN_ESP, OUTPUT);
@@ -261,7 +261,7 @@ void loop() {
       teleTime = currentTime;
 
       publishMessage = "{\"jarak\":" + String(distanceCm) + "}";
-      client.publish(MQTT_TOPIC, &publishMessage[0]);
+      client.publish(MQTT_TOPIC_TELE_PUB, &publishMessage[0]);
 
       Serial.print(teleTime / 1000);
       Serial.print("s : ");

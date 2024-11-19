@@ -108,14 +108,12 @@ void callback(char* topic, byte* payload, unsigned int length) {
 }
 
 void reconnect() {
-  // Loop until we're reconnected
   while (!client.connected()) {
-    Serial.print("Attempting MQTT connection...");
-    // Attempt to connect to the MQTT broker
+    Serial.print("The client ");
+    Serial.print(MQTT_CLIENT_ID);
+    Serial.println(" connecting to the public MQTT broker");
     if (client.connect(MQTT_CLIENT_ID)) {
-      Serial.println("connected");
-      // Subscribe to the temperature topic
-      client.subscribe(MQTT_TOPIC_RPC_REQ_SUB);
+      Serial.println("Public EMQX MQTT broker connected");
     } else {
       Serial.print("failed with state ");
       Serial.print(client.state());
@@ -177,21 +175,24 @@ void setup() {
     delay(500);
     Serial.print(".");
   }
-  Serial.println("\nConnected to the Wi-Fi network");
+  Serial.println();
+  Serial.println("Connected to the Wi-Fi network");
 
   // connecting to a mqtt broker
   client.setServer(MQTT_BROKER, MQTT_PORT);
   client.setCallback(callback);
 
   while (!client.connected()) {
-    // client_id += String(WiFi.macAddress());
-    Serial.printf("The client %s connects to the public MQTT broker\n", MQTT_CLIENT_ID);
+    Serial.print("The client ");
+    Serial.print(MQTT_CLIENT_ID);
+    Serial.println(" connecting to the public MQTT broker");
     if (client.connect(MQTT_CLIENT_ID, MQTT_USERNAME, MQTT_PASSWORD)) {
       Serial.println("Public EMQX MQTT broker connected");
     } else {
       Serial.print("failed with state ");
       Serial.print(client.state());
-      delay(2000);
+      Serial.println(" try again in 5 seconds");
+      delay(5000);
     }
   }
 

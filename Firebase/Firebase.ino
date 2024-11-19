@@ -3,8 +3,8 @@
 #include <addons/TokenHelper.h>
 #include <addons/RTDBHelper.h>
 
-#define DATABASE_URL ""
-#define API_KEY ""
+#define DATABASE_URL "https://piot-luthfi-default-rtdb.firebaseio.com/"
+#define API_KEY "AIzaSyAvyOLNoB8Jto0s7yBh0kpw2JcDXcxqRhg"
 
 #define ssid "Redmi Note 13 Pro 5G"
 #define password "12121212"

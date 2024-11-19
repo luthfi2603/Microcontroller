@@ -27,6 +27,7 @@ String MQTT_TOPIC_BASE_RPC_RESP_PUB = "v1/devices/me/rpc/response/"; // untuk pu
 WiFiClient espClient;
 PubSubClient client(espClient);
 
+bool lampuState = false;
 String message, topicStr, responseRpc;
 uint16_t telemetryPeriod = 1000;
 
@@ -45,25 +46,19 @@ void callback(char* topic, byte* payload, uint32_t length) {
   Serial.println(message);
 
   if (topicStr.indexOf("rpc") != -1) {
-    /* responseRpc = "{\"";
-
-    if (message.indexOf("setGpioStatus") >= 0) {
-      if (message.substring(message.indexOf("enabled") + 9) == "true}}") {
-        responseRpc += message.substring((message.indexOf("pin") + 5), (message.indexOf("pin") + 6)) + "\":";
-        responseRpc += "true}";
-        rpcState = true;
+    if (message.indexOf("getLampuState") != -1) {
+      if (lampuState) {
+        responseRpc = "true";
       } else {
-        responseRpc += message.substring((message.indexOf("pin") + 5), (message.indexOf("pin") + 6)) + "\":";
-        responseRpc += "false}";
-        rpcState = false;
+        responseRpc = "false";
       }
-    } else {
+    } else if(message.indexOf("setLampuState") != -1) {
       if (message.substring(message.indexOf("params") + 8) == "true}") {
-        responseRpc += "params\":true}";
-        innerLedState = true;
+        responseRpc = "true";
+        lampuState = true;
       } else {
-        responseRpc += "params\":false}";
-        innerLedState = false;
+        responseRpc = "false";
+        lampuState = false;
       }
     }
 
@@ -71,18 +66,23 @@ void callback(char* topic, byte* payload, uint32_t length) {
     String requestIdStr = topicStr.substring(requestIdPos);
     String MQTT_TOPIC_RPC_RESP_PUB = MQTT_TOPIC_BASE_RPC_RESP_PUB + requestIdStr;
 
+    Serial.print("Response: ");
     Serial.println(responseRpc);
-    client.publish(&MQTT_TOPIC_RPC_RESP_PUB[0], &responseRpc[0]); */
+    client.publish(&MQTT_TOPIC_RPC_RESP_PUB[0], &responseRpc[0]);
   } else if (topicStr.indexOf("attributes") != -1) {
     int attributePos = message.indexOf("tele_period");
 
     if (attributePos != -1) {
       attributePos += 13;
-      telemetryPeriod = message.substring(attributePos).toInt();
-
-      Serial.print("Telemetry Publish Period: ");
-      Serial.print(telemetryPeriod / 1000.);
-      Serial.println("s");
+      
+      if (message.substring(attributePos).toInt() > 1000) {
+        telemetryPeriod = message.substring(attributePos).toInt();
+        Serial.print("Telemetry Publish Period: ");
+        Serial.print(telemetryPeriod / 1000.);
+        Serial.println("s");
+      } else {
+        Serial.println("Telemetry period is too low than 1s");
+      }
     }
   }
 
@@ -175,14 +175,6 @@ void loop() {
     resistance = 2000 * voltage / (3.3 - voltage);
     lux = pow(RL10 * 1e3 * pow(10, GAMMA) / resistance, (1 / GAMMA)) * 0.1;
 
-    if (lux > 50) {
-      // hari terang
-      digitalWrite(RELAY_PIN, LOW);
-    } else {
-      // hari gelap
-      digitalWrite(RELAY_PIN, HIGH);
-    }
-
     Serial.print(pollingTime / 1000.);
     Serial.print("s : ");
     Serial.print(analogValue);
@@ -199,5 +191,13 @@ void loop() {
 
     Serial.print("Publish ");
     Serial.println(publishMessage);
+  }
+
+  if (lux <= 50 || lampuState) {
+    // hari gelap
+    digitalWrite(RELAY_PIN, HIGH);
+  } else {
+    // hari terang
+    digitalWrite(RELAY_PIN, LOW);
   }
 }

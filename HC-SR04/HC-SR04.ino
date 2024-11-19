@@ -71,6 +71,10 @@ void callback(char* topic, byte* payload, unsigned int length) {
         responseRpc += "false}";
         rpcState = false;
       }
+    } else if (message.indexOf("getGpioStatus") != -1) {
+      if (!rpcState) {
+        responseRpc += "1\":true,\"2\":true,\"3\":true}";
+      }
     } else {
       if (message.substring(message.indexOf("params") + 8) == "true}") {
         responseRpc += "params\":true}";
@@ -89,6 +93,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
     // Serial.println(requestIdStr);
     // Serial.println(MQTT_TOPIC_RPC_RESP_PUB);
 
+    Serial.print("Response: ");
     Serial.println(responseRpc);
     client.publish(&MQTT_TOPIC_RPC_RESP_PUB[0], &responseRpc[0]);
   }else if(topicStr.indexOf("attributes") != -1){
@@ -98,9 +103,13 @@ void callback(char* topic, byte* payload, unsigned int length) {
       attributePos += 13;
 
       // int endingChar = message.substring("}", attributePos);
-      telemetryPeriod = message.substring(attributePos).toInt();
-      Serial.print("Telemetry Publish Period : ");
-      Serial.println(telemetryPeriod);
+      if (message.substring(attributePos).toInt() > 1000) {
+        telemetryPeriod = message.substring(attributePos).toInt();
+        Serial.print("Telemetry Publish Period : ");
+        Serial.println(telemetryPeriod);
+      } else {
+        Serial.println("Telemetry period is too low than 1s");
+      }
     }
   }
 

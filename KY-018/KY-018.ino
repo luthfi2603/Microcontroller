@@ -27,8 +27,8 @@ String MQTT_TOPIC_BASE_RPC_RESP_PUB = "v1/devices/me/rpc/response/"; // untuk pu
 WiFiClient espClient;
 PubSubClient client(espClient);
 
-bool lampuState = false;
-String message, topicStr, responseRpc;
+bool lampuState = false, sensorState = true;
+String message, topicStr, responseRpc, requestIdSwitchLampu = "0";
 uint16_t telemetryPeriod = 1000;
 
 void callback(char* topic, byte* payload, uint32_t length) {
@@ -46,7 +46,12 @@ void callback(char* topic, byte* payload, uint32_t length) {
   Serial.println(message);
 
   if (topicStr.indexOf("rpc") != -1) {
+    int requestIdPos = topicStr.indexOf("v1/devices/me/rpc/request/") + 26;
+    String requestIdStr = topicStr.substring(requestIdPos);
+    String MQTT_TOPIC_RPC_RESP_PUB = MQTT_TOPIC_BASE_RPC_RESP_PUB + requestIdStr;
+
     if (message.indexOf("getLampuState") != -1) {
+      requestIdSwitchLampu = requestIdStr;
       if (lampuState) {
         responseRpc = "true";
       } else {
@@ -60,11 +65,23 @@ void callback(char* topic, byte* payload, uint32_t length) {
         responseRpc = "false";
         lampuState = false;
       }
+      sensorState = false;
+    } else if (message.indexOf("getSensorState") != -1) {
+      if (sensorState) {
+        responseRpc = "true";
+      } else {
+        responseRpc = "false";
+      }
+    } else if(message.indexOf("setSensorState") != -1) {
+      if (message.substring(message.indexOf("params") + 8) == "true}") {
+        responseRpc = "true";
+        sensorState = true;
+      } else {
+        responseRpc = "false";
+        sensorState = false;
+        lampuState = false;
+      }
     }
-
-    int requestIdPos = topicStr.indexOf("v1/devices/me/rpc/request/") + 26;
-    String requestIdStr = topicStr.substring(requestIdPos);
-    String MQTT_TOPIC_RPC_RESP_PUB = MQTT_TOPIC_BASE_RPC_RESP_PUB + requestIdStr;
 
     Serial.print("Response: ");
     Serial.println(responseRpc);
@@ -75,12 +92,13 @@ void callback(char* topic, byte* payload, uint32_t length) {
     if (attributePos != -1) {
       attributePos += 13;
       
-      if (message.substring(attributePos).toInt() > 1000) {
+      if (message.substring(attributePos).toInt() >= 1000) {
         telemetryPeriod = message.substring(attributePos).toInt();
         Serial.print("Telemetry Publish Period: ");
         Serial.print(telemetryPeriod / 1000.);
         Serial.println("s");
       } else {
+        telemetryPeriod = 1000;
         Serial.println("Telemetry period is too low than 1s");
       }
     }
@@ -151,6 +169,7 @@ void setup() {
   client.subscribe(MQTT_TOPIC_ATTR_REPL_SUB); // attribute request -> response subscribe
 }
 
+bool publishCahayaState = false, publishCahayaState2 = true, publishCahayaState3 = true;
 const float GAMMA = 0.7;
 const float RL10 = 50;
 float voltage, resistance, lux;
@@ -165,39 +184,72 @@ void loop() {
 
   client.loop();
 
-  // dijalankan setiap waktu berdasarkan telemetry period
-  currentTime = millis();
-  if (currentTime - pollingTime >= telemetryPeriod) {
-    pollingTime = currentTime;
+  if (sensorState) {
+    // dijalankan setiap waktu berdasarkan telemetry period
+    currentTime = millis();
+    if (currentTime - pollingTime >= telemetryPeriod) {
+      pollingTime = currentTime;
 
-    analogValue = analogRead(LDR_PIN);
-    voltage = analogValue / 4095. * 3.3;
-    resistance = 2000 * voltage / (3.3 - voltage);
-    lux = pow(RL10 * 1e3 * pow(10, GAMMA) / resistance, (1 / GAMMA)) * 0.1;
+      analogValue = analogRead(LDR_PIN);
+      voltage = analogValue / 4095. * 3.3;
+      resistance = 2000 * voltage / (3.3 - voltage);
+      lux = pow(RL10 * 1e3 * pow(10, GAMMA) / resistance, (1 / GAMMA)) * 0.1;
 
-    Serial.print(pollingTime / 1000.);
-    Serial.print("s : ");
-    Serial.print(analogValue);
-    Serial.print(" | ");
-    Serial.print(voltage);
-    Serial.print("V | ");
-    Serial.print(resistance);
-    Serial.print("ohm | ");
-    Serial.print(lux);
-    Serial.println("lx");
+      Serial.print(pollingTime / 1000.);
+      Serial.print("s : ");
+      Serial.print(analogValue);
+      Serial.print(" | ");
+      Serial.print(voltage);
+      Serial.print("V | ");
+      Serial.print(resistance);
+      Serial.print("ohm | ");
+      Serial.print(lux);
+      Serial.println("lx");
 
-    publishMessage = "{\"brightness\":" + String(lux) + "}";
-    client.publish(MQTT_TOPIC_TELE_PUB, &publishMessage[0]);
+      publishMessage = "{\"brightness\":" + String(lux) + "}";
+      client.publish(MQTT_TOPIC_TELE_PUB, &publishMessage[0]);
 
-    Serial.print("Publish ");
-    Serial.println(publishMessage);
+      Serial.print("Publish ");
+      Serial.println(publishMessage);
+    }
   }
 
-  if (lux <= 50 || lampuState) {
-    // hari gelap
+  if (lampuState) { // lampu hidup
     digitalWrite(RELAY_PIN, HIGH);
   } else {
-    // hari terang
-    digitalWrite(RELAY_PIN, LOW);
+    if (sensorState) { // sensor hidup
+      if (lux <= 50) {
+        publishCahayaState = true;
+        if(publishCahayaState && publishCahayaState2){
+          String MQTT_TOPIC_RPC_RESP_PUB = MQTT_TOPIC_BASE_RPC_RESP_PUB + requestIdSwitchLampu;
+          responseRpc = "true";
+          Serial.print("Response: ");
+          Serial.println(responseRpc);
+          client.publish(&MQTT_TOPIC_RPC_RESP_PUB[0], &responseRpc[0]);
+
+          publishCahayaState2 = false;
+        }
+
+        lampuState = true;
+      } else {
+        if(publishCahayaState || publishCahayaState3){
+          String MQTT_TOPIC_RPC_RESP_PUB = MQTT_TOPIC_BASE_RPC_RESP_PUB + requestIdSwitchLampu;
+          responseRpc = "false";
+          Serial.print("Response: ");
+          Serial.println(responseRpc);
+          client.publish(&MQTT_TOPIC_RPC_RESP_PUB[0], &responseRpc[0]);
+
+          publishCahayaState = false;
+          publishCahayaState2 = true;
+          publishCahayaState3 = false;
+        }
+
+        lampuState = false;
+        digitalWrite(RELAY_PIN, LOW);
+      }
+    } else {
+      digitalWrite(RELAY_PIN, LOW);
+    }
   }
 }
+// kalau saklar lampu dihidup atau dimatikan, sensor cahayanya mati

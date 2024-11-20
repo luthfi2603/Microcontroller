@@ -103,11 +103,12 @@ void callback(char* topic, byte* payload, unsigned int length) {
       attributePos += 13;
 
       // int endingChar = message.substring("}", attributePos);
-      if (message.substring(attributePos).toInt() > 1000) {
+      if (message.substring(attributePos).toInt() >= 1000) {
         telemetryPeriod = message.substring(attributePos).toInt();
         Serial.print("Telemetry Publish Period : ");
         Serial.println(telemetryPeriod);
       } else {
+        telemetryPeriod = 1000;
         Serial.println("Telemetry period is too low than 1s");
       }
     }

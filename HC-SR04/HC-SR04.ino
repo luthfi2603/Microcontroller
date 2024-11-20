@@ -109,7 +109,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
         Serial.println(telemetryPeriod);
       } else {
         telemetryPeriod = 1000;
-        Serial.println("Telemetry period is too low than 1s");
+        Serial.println("Telemetry period is too low than 1s, set telemetry period to 1s");
       }
     }
   }

@@ -2,7 +2,7 @@
 #include <PubSubClient.h>
 
 // definisi pin
-#define LDR_PIN 34
+#define LDR_PIN 32
 #define RELAY_PIN 16
 
 // wifi
@@ -19,16 +19,17 @@
 #define MQTT_PORT 1983
 #define MQTT_TOPIC_TELE_PUB "v1/devices/me/telemetry" // untuk publish
 #define MQTT_TOPIC_RPC_REQ_SUB "v1/devices/me/rpc/request/+" // untuk RPC (remote procedural call) menerima data/perintah dari server
-String MQTT_TOPIC_BASE_RPC_RESP_PUB = "v1/devices/me/rpc/response/"; // untuk publish response dari RPC
+#define MQTT_TOPIC_BASE_RPC_RESP_PUB "v1/devices/me/rpc/response/" // untuk publish response dari RPC
 #define MQTT_TOPIC_ATTR_SUB "v1/devices/me/attributes" // untuk subscribe atribut dari server
 #define MQTT_TOPIC_BASE_ATTR_REPL_REQ_PUB "v1/devices/me/attributes/request/" // untuk publish request atribut ke server
 #define MQTT_TOPIC_ATTR_REPL_SUB "v1/devices/me/attributes/response/+" // untuk subscribe atribut dari server cara lain
+#define MQTT_TOPIC_BASE_RPC_PUB "v1/devices/me/rpc/request/" // untuk publish rpc ke server
 
 WiFiClient espClient;
 PubSubClient client(espClient);
 
 bool lampuState = false, sensorState = true;
-String message, topicStr, responseRpc, requestIdSwitchLampu = "0";
+String message, topicStr, responseRpc;
 uint16_t telemetryPeriod = 1000;
 
 void callback(char* topic, byte* payload, uint32_t length) {
@@ -48,10 +49,9 @@ void callback(char* topic, byte* payload, uint32_t length) {
   if (topicStr.indexOf("rpc") != -1) {
     int requestIdPos = topicStr.indexOf("v1/devices/me/rpc/request/") + 26;
     String requestIdStr = topicStr.substring(requestIdPos);
-    String MQTT_TOPIC_RPC_RESP_PUB = MQTT_TOPIC_BASE_RPC_RESP_PUB + requestIdStr;
+    String MQTT_TOPIC_RPC_RESP_PUB = MQTT_TOPIC_BASE_RPC_RESP_PUB + String(requestIdStr);
 
     if (message.indexOf("getLampuState") != -1) {
-      requestIdSwitchLampu = requestIdStr;
       if (lampuState) {
         responseRpc = "true";
       } else {
@@ -162,6 +162,11 @@ void setup() {
 
   String MQTT_TOPIC_ATTR_REPL_REQ_PUB = MQTT_TOPIC_BASE_ATTR_REPL_REQ_PUB + String(requestAttributeId);
   client.publish(MQTT_TOPIC_ATTR_REPL_REQ_PUB.c_str(), "{\"clientKeys\":\"cliattr1,cliattr2\",\"sharedKeys\":\"tele_period,sharedattr2\"}");
+
+  Serial.print("Topic: ");
+  Serial.println(MQTT_TOPIC_ATTR_REPL_REQ_PUB);
+  Serial.println("Publish: {\"clientKeys\":\"cliattr1,cliattr2\",\"sharedKeys\":\"tele_period,sharedattr2\"}");
+  
   requestAttributeId++;
 
   client.subscribe(MQTT_TOPIC_RPC_REQ_SUB); // rpc subscribe
@@ -229,11 +234,16 @@ void loop() {
       if (lux <= 50) { // gelap
         publishCahayaState = true;
         if (publishCahayaState && publishCahayaState2) {
-          String MQTT_TOPIC_RPC_RESP_PUB = MQTT_TOPIC_BASE_RPC_RESP_PUB + requestIdSwitchLampu;
-          responseRpc = "true";
-          Serial.print("Response: ");
+          String MQTT_TOPIC_RPC_PUB = MQTT_TOPIC_BASE_RPC_PUB + String(requestAttributeId);
+          responseRpc = "{\"method\":\"setLampuState\",\"params\":true}";
+
+          Serial.print("Topic: ");
+          Serial.println(MQTT_TOPIC_RPC_PUB);
+          Serial.print("Publish: ");
           Serial.println(responseRpc);
-          client.publish(&MQTT_TOPIC_RPC_RESP_PUB[0], &responseRpc[0]);
+          
+          client.publish(&MQTT_TOPIC_RPC_PUB[0], &responseRpc[0]);
+          requestAttributeId++;
 
           publishCahayaState2 = false;
         }
@@ -241,11 +251,16 @@ void loop() {
         lampuState = true;
       } else { // terang
         if (publishCahayaState || publishCahayaState3) {
-          String MQTT_TOPIC_RPC_RESP_PUB = MQTT_TOPIC_BASE_RPC_RESP_PUB + requestIdSwitchLampu;
-          responseRpc = "false";
-          Serial.print("Response: ");
+          String MQTT_TOPIC_RPC_PUB = MQTT_TOPIC_BASE_RPC_PUB + String(requestAttributeId);
+          responseRpc = "{\"method\":\"setLampuState\",\"params\":false}";
+
+          Serial.print("Topic: ");
+          Serial.println(MQTT_TOPIC_RPC_PUB);
+          Serial.print("Publish: ");
           Serial.println(responseRpc);
-          client.publish(&MQTT_TOPIC_RPC_RESP_PUB[0], &responseRpc[0]);
+
+          client.publish(&MQTT_TOPIC_RPC_PUB[0], &responseRpc[0]);
+          requestAttributeId++;
 
           publishCahayaState = false;
           publishCahayaState2 = true;

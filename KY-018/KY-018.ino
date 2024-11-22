@@ -23,13 +23,12 @@
 #define MQTT_TOPIC_ATTR_SUB "v1/devices/me/attributes" // untuk subscribe atribut dari server
 #define MQTT_TOPIC_BASE_ATTR_REPL_REQ_PUB "v1/devices/me/attributes/request/" // untuk publish request atribut ke server
 #define MQTT_TOPIC_ATTR_REPL_SUB "v1/devices/me/attributes/response/+" // untuk subscribe atribut dari server cara lain
-#define MQTT_TOPIC_BASE_RPC_PUB "v1/devices/me/rpc/request/" // untuk publish rpc ke server
 
 WiFiClient espClient;
 PubSubClient client(espClient);
 
-bool lampuState = false, sensorState = true;
-String message, topicStr, responseRpc;
+bool lampuState = false, sensorState = true, publishCahayaState = false, publishCahayaState2 = true;
+String message, topicStr, responseRpc, publishMessage;
 uint16_t telemetryPeriod = 1000;
 
 void callback(char* topic, byte* payload, uint32_t length) {
@@ -51,13 +50,7 @@ void callback(char* topic, byte* payload, uint32_t length) {
     String requestIdStr = topicStr.substring(requestIdPos);
     String MQTT_TOPIC_RPC_RESP_PUB = MQTT_TOPIC_BASE_RPC_RESP_PUB + String(requestIdStr);
 
-    if (message.indexOf("getLampuState") != -1) {
-      if (lampuState) {
-        responseRpc = "true";
-      } else {
-        responseRpc = "false";
-      }
-    } else if(message.indexOf("setLampuState") != -1) {
+    if (message.indexOf("setLampuState") != -1) {
       if (message.substring(message.indexOf("params") + 8) == "true}") {
         responseRpc = "true";
         lampuState = true;
@@ -65,22 +58,25 @@ void callback(char* topic, byte* payload, uint32_t length) {
         responseRpc = "false";
         lampuState = false;
       }
+
       sensorState = false; // kalau hidup atau matikan dari switch lampu di dashboard, sensor mati
-    } else if (message.indexOf("getSensorState") != -1) {
-      if (sensorState) {
-        responseRpc = "true";
-      } else {
-        responseRpc = "false";
-      }
-    } else if(message.indexOf("setSensorState") != -1) {
+
+      publishMessage = "{\"sensor_state\":false}";
+      client.publish(MQTT_TOPIC_TELE_PUB, &publishMessage[0]);
+
+      Serial.print("Publish: ");
+      Serial.println(publishMessage);
+    } else if (message.indexOf("setSensorState") != -1) {
       if (message.substring(message.indexOf("params") + 8) == "true}") {
         responseRpc = "true";
         sensorState = true;
       } else {
         responseRpc = "false";
         sensorState = false;
-        // lampuState = false; // kalau sensornya dimatikan dari dashboard, lampu nya mati jugak
       }
+
+      publishCahayaState = true;
+      publishCahayaState2 = true;
     }
 
     Serial.print("Response: ");
@@ -169,16 +165,27 @@ void setup() {
   
   requestAttributeId++;
 
+  publishMessage = "{\"lampu_state\":false}";
+  client.publish(MQTT_TOPIC_TELE_PUB, &publishMessage[0]);
+
+  Serial.print("Publish: ");
+  Serial.println(publishMessage);
+
+  publishMessage = "{\"sensor_state\":true}";
+  client.publish(MQTT_TOPIC_TELE_PUB, &publishMessage[0]);
+
+  Serial.print("Publish: ");
+  Serial.println(publishMessage);
+
   client.subscribe(MQTT_TOPIC_RPC_REQ_SUB); // rpc subscribe
   client.subscribe(MQTT_TOPIC_ATTR_SUB); // telemetry period subscribe
   client.subscribe(MQTT_TOPIC_ATTR_REPL_SUB); // attribute request -> response subscribe
 }
 
-bool publishCahayaState = false, publishCahayaState2 = true, publishCahayaState3 = true;
+bool publishCahayaState3 = true;
 const float GAMMA = 0.7;
 const float RL10 = 50;
 float voltage, resistance, lux;
-String publishMessage;
 uint16_t analogValue;
 uint32_t currentTime, pollingTime = 0;
 
@@ -200,6 +207,10 @@ void loop() {
       resistance = 2000 * voltage / (3.3 - voltage);
       lux = pow(RL10 * 1e3 * pow(10, GAMMA) / resistance, (1 / GAMMA)) * 0.1;
 
+      if (!isfinite(lux)) {
+        lux = 100000;
+      }
+
       Serial.print(pollingTime / 1000.);
       Serial.print("s : ");
       Serial.print(analogValue);
@@ -207,14 +218,14 @@ void loop() {
       Serial.print(voltage);
       Serial.print("V | ");
       Serial.print(resistance);
-      Serial.print("ohm | ");
+      Serial.print("Ohm | ");
       Serial.print(lux);
       Serial.println("lx");
 
       publishMessage = "{\"brightness\":" + String(lux) + "}";
       client.publish(MQTT_TOPIC_TELE_PUB, &publishMessage[0]);
 
-      Serial.print("Publish ");
+      Serial.print("Publish: ");
       Serial.println(publishMessage);
     }
   } else {
@@ -226,7 +237,7 @@ void loop() {
   if (lampuState) { // lampu hidup
     digitalWrite(RELAY_PIN, HIGH);
 
-    if (lux > 50) {
+    if (lux > 50) { // sensor hidup, terang
       lampuState = false;
     }
   } else { // lampu mati
@@ -234,16 +245,11 @@ void loop() {
       if (lux <= 50) { // gelap
         publishCahayaState = true;
         if (publishCahayaState && publishCahayaState2) {
-          String MQTT_TOPIC_RPC_PUB = MQTT_TOPIC_BASE_RPC_PUB + String(requestAttributeId);
-          responseRpc = "{\"method\":\"setLampuState\",\"params\":true}";
+          publishMessage = "{\"lampu_state\":true}";
+          client.publish(MQTT_TOPIC_TELE_PUB, &publishMessage[0]);
 
-          Serial.print("Topic: ");
-          Serial.println(MQTT_TOPIC_RPC_PUB);
           Serial.print("Publish: ");
-          Serial.println(responseRpc);
-          
-          client.publish(&MQTT_TOPIC_RPC_PUB[0], &responseRpc[0]);
-          requestAttributeId++;
+          Serial.println(publishMessage);
 
           publishCahayaState2 = false;
         }
@@ -251,16 +257,11 @@ void loop() {
         lampuState = true;
       } else { // terang
         if (publishCahayaState || publishCahayaState3) {
-          String MQTT_TOPIC_RPC_PUB = MQTT_TOPIC_BASE_RPC_PUB + String(requestAttributeId);
-          responseRpc = "{\"method\":\"setLampuState\",\"params\":false}";
+          publishMessage = "{\"lampu_state\":false}";
+          client.publish(MQTT_TOPIC_TELE_PUB, &publishMessage[0]);
 
-          Serial.print("Topic: ");
-          Serial.println(MQTT_TOPIC_RPC_PUB);
           Serial.print("Publish: ");
-          Serial.println(responseRpc);
-
-          client.publish(&MQTT_TOPIC_RPC_PUB[0], &responseRpc[0]);
-          requestAttributeId++;
+          Serial.println(publishMessage);
 
           publishCahayaState = false;
           publishCahayaState2 = true;
@@ -275,8 +276,8 @@ void loop() {
     }
   }
 }
-// kalau saklar lampu dihidup atau dimatikan, sensor cahayanya mati
 /**
+ * kalau saklar lampu dihidup atau dimatikan, sensor cahayanya mati
  * sensor hidup
  *   kalau terang, lampu mati
  *     switch lampu di dashboard mati

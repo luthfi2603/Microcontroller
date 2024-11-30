@@ -2,14 +2,14 @@
 #include <PubSubClient.h>
 
 // definisi pin
-#define LDR_PIN 32
+#define LDR_PIN 34
 #define RELAY_PIN 16
 
 // wifi
-#define WIFI_SSID "Wokwi-GUEST"
-#define WIFI_PASSWORD ""
-/* #define WIFI_SSID "Redmi Note 13 Pro 5G"
-#define WIFI_PASSWORD "12121212" */
+/* #define WIFI_SSID "Wokwi-GUEST"
+#define WIFI_PASSWORD "" */
+#define WIFI_SSID "Redmi Note 13 Pro 5G"
+#define WIFI_PASSWORD "12121212"
 
 // MQTT Broker
 #define MQTT_BROKER "202.0.107.154"
@@ -108,15 +108,40 @@ void reconnect() {
     Serial.print("The client ");
     Serial.print(MQTT_CLIENT_ID);
     Serial.println(" connecting to the public MQTT broker");
-    if (client.connect(MQTT_CLIENT_ID)) {
+    if (client.connect(MQTT_CLIENT_ID, MQTT_USERNAME, MQTT_PASSWORD)) {
       Serial.println("Public EMQX MQTT broker connected");
     } else {
-      Serial.print("failed with state ");
+      Serial.print("Failed with state ");
       Serial.print(client.state());
       Serial.println(" try again in 5 seconds");
       delay(5000);
     }
   }
+
+  String MQTT_TOPIC_ATTR_REPL_REQ_PUB = MQTT_TOPIC_BASE_ATTR_REPL_REQ_PUB + String(requestAttributeId);
+  client.publish(MQTT_TOPIC_ATTR_REPL_REQ_PUB.c_str(), "{\"clientKeys\":\"cliattr1,cliattr2\",\"sharedKeys\":\"tele_period,sharedattr2\"}");
+
+  Serial.print("Topic: ");
+  Serial.println(MQTT_TOPIC_ATTR_REPL_REQ_PUB);
+  Serial.println("Publish: {\"clientKeys\":\"cliattr1,cliattr2\",\"sharedKeys\":\"tele_period,sharedattr2\"}");
+  
+  requestAttributeId++;
+
+  publishMessage = "{\"lampu_state\":false}";
+  client.publish(MQTT_TOPIC_TELE_PUB, &publishMessage[0]);
+
+  Serial.print("Publish: ");
+  Serial.println(publishMessage);
+
+  publishMessage = "{\"sensor_state\":true}";
+  client.publish(MQTT_TOPIC_TELE_PUB, &publishMessage[0]);
+
+  Serial.print("Publish: ");
+  Serial.println(publishMessage);
+
+  client.subscribe(MQTT_TOPIC_RPC_REQ_SUB); // rpc subscribe
+  client.subscribe(MQTT_TOPIC_ATTR_SUB); // telemetry period subscribe
+  client.subscribe(MQTT_TOPIC_ATTR_REPL_SUB); // attribute request -> response subscribe
 }
 
 uint32_t requestAttributeId = 1;
@@ -149,7 +174,7 @@ void setup() {
     if (client.connect(MQTT_CLIENT_ID, MQTT_USERNAME, MQTT_PASSWORD)) {
       Serial.println("Public EMQX MQTT broker connected");
     } else {
-      Serial.print("failed with state ");
+      Serial.print("Failed with state ");
       Serial.print(client.state());
       Serial.println(" try again in 5 seconds");
       delay(5000);

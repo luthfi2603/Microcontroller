@@ -1,5 +1,6 @@
 #include <WiFi.h>
 #include <PubSubClient.h>
+#include <Preferences.h>
 
 //define sound speed in cm/uS
 #define SOUND_SPEED 0.034
@@ -10,12 +11,13 @@
 #define LED_PIN 23
 #define LED_PIN_ESP 2
 #define BUZZER_PIN 19
+#define BOOT_BUTTON_PIN 0
 
 // WiFi
-#define WIFI_SSID "Wokwi-GUEST"
-#define WIFI_PASSWORD ""
-/* #define WIFI_SSID "Redmi Note 13 Pro 5G"
-#define WIFI_PASSWORD "12121212" */
+/* #define WIFI_SSID "Wokwi-GUEST"
+#define WIFI_PASSWORD "" */
+#define WIFI_SSID "Redmi Note 13 Pro 5G"
+#define WIFI_PASSWORD "12121212"
 
 // MQTT Broker
 #define MQTT_BROKER "202.0.107.154"
@@ -25,23 +27,29 @@
 #define MQTT_PORT 1983
 #define MQTT_TOPIC_TELE_PUB "v1/devices/me/telemetry" // untuk publish
 #define MQTT_TOPIC_RPC_REQ_SUB "v1/devices/me/rpc/request/+" // untuk RPC (remote procedural call) menerima data/perintah dari server
-String MQTT_TOPIC_BASE_RPC_RESP_PUB = "v1/devices/me/rpc/response/"; // untuk publish response dari RPC
+#define MQTT_TOPIC_BASE_RPC_RESP_PUB "v1/devices/me/rpc/response/" // untuk publish response dari RPC
 #define MQTT_TOPIC_ATTR_SUB "v1/devices/me/attributes" // untuk subscribe atribut dari server
 #define MQTT_TOPIC_BASE_ATTR_REPL_REQ_PUB "v1/devices/me/attributes/request/" // untuk publish request atribut ke server
 #define MQTT_TOPIC_ATTR_REPL_SUB "v1/devices/me/attributes/response/+" // untuk subscribe atribut dari server cara lain
 
+// Preferences key
+#define AP_NAME "ap_name"
+#define AP_PASSWORD "ap_password"
+
 // Variable declaration
-uint32_t currentTime, pollingTime = 0, requestAttributeId = 1;
+uint32_t currentTime, pollingTime = 0, requestAttributeId = 1, lastDebounceTime = 0;
 unsigned long duration;
 float distanceCm = 100;
 // float distanceInch;
-bool wailing = false, rpcState = false, innerLedState = false;
+bool wailing = false, rpcState = false, innerLedState = false, preferencesInitialized = false;
 unsigned int frequency = 600, lastToneChange, currentTime2, telemetryPeriod = 2000, teleTime = 0;
-int8_t direction = 1;
-String publishMessage = "";
+int8_t direction = 1, reading, lastButtonState = HIGH, buttonState;
+String publishMessage = "", newWifiAccessPoint = "", newWifiPassword = "", responseRpc;
+unsigned char accessPointAttribute = 0;
 
 WiFiClient espClient;
 PubSubClient client(espClient);
+Preferences database;
 
 void callback(char* topic, byte* payload, unsigned int length) {
   String message = "";
@@ -59,31 +67,54 @@ void callback(char* topic, byte* payload, unsigned int length) {
   Serial.println(message);
 
   if(topicStr.indexOf("rpc") != -1){
-    String responseRpc = "{\"";
-
     if (message.indexOf("setGpioStatus") >= 0) {
       if (message.substring(message.indexOf("enabled") + 9) == "true}}") {
+        responseRpc = "{\"";
         responseRpc += message.substring((message.indexOf("pin") + 5), (message.indexOf("pin") + 6)) + "\":";
         responseRpc += "true}";
         rpcState = true;
+
+        // clear preferences
+        if (message.substring((message.indexOf("pin") + 5), (message.indexOf("pin") + 6)) == "1") {
+          if (!preferencesInitialized) {
+            database.begin("esp32db", false);
+            preferencesInitialized = true;
+          }
+          database.clear();
+          Serial.println("Semua preferences dihapus");
+        }
       } else {
+        responseRpc = "{\"";
         responseRpc += message.substring((message.indexOf("pin") + 5), (message.indexOf("pin") + 6)) + "\":";
         responseRpc += "false}";
         rpcState = false;
       }
     } else if (message.indexOf("getGpioStatus") != -1) {
-      if (!rpcState) {
-        responseRpc += "1\":true,\"2\":true,\"3\":true}";
+      responseRpc = "{\"1\":false,\"2\":false,\"3\":false}";
+    } else if (message.indexOf("getValue") != -1) {
+      if (innerLedState) {
+        responseRpc = "true";
+      } else {
+        responseRpc = "false";
       }
-    } else {
+    } else if (message.indexOf("setValue") != -1) {
       if (message.substring(message.indexOf("params") + 8) == "true}") {
-        responseRpc += "params\":true}";
+        responseRpc = "true";
         innerLedState = true;
       } else {
-        responseRpc += "params\":false}";
+        responseRpc = "false";
         innerLedState = false;
       }
-    }
+
+      if (!preferencesInitialized) {
+        database.begin("esp32db", false);
+        preferencesInitialized = true;
+      }
+      Serial.print("ap_name:");
+      Serial.println(database.getString(AP_NAME, ""));
+      Serial.print("ap_password:");
+      Serial.println(database.getString(AP_PASSWORD, ""));
+    } 
 
     int requestIdPos = topicStr.indexOf("v1/devices/me/rpc/request/") + 26;
     String requestIdStr = topicStr.substring(requestIdPos);
@@ -97,9 +128,12 @@ void callback(char* topic, byte* payload, unsigned int length) {
     Serial.println(responseRpc);
     client.publish(&MQTT_TOPIC_RPC_RESP_PUB[0], &responseRpc[0]);
   }else if(topicStr.indexOf("attributes") != -1){
+    // message : {"...:"..},{"tele_period":2000},{"wifi_access_point":"aptes"},{"wifi_password":"aptes"}
     int attributePos = message.indexOf("tele_period");
+    int wifiAccessPointPosition = message.indexOf("wifi_access_point");
+    int wifiPasswordPosition = message.indexOf("wifi_password");
 
-    if(attributePos != -1){
+    if (attributePos != -1) {
       attributePos += 13;
 
       // int endingChar = message.substring("}", attributePos);
@@ -111,6 +145,91 @@ void callback(char* topic, byte* payload, unsigned int length) {
         telemetryPeriod = 1000;
         Serial.println("Telemetry period is too low than 1s, set telemetry period to 1s");
       }
+    } else if (wifiAccessPointPosition != -1) {
+      wifiAccessPointPosition += 20;
+      int endingChar = message.indexOf("\"}", wifiAccessPointPosition);
+      newWifiAccessPoint = message.substring(wifiAccessPointPosition, endingChar);
+      Serial.println(newWifiAccessPoint);
+
+      if (!preferencesInitialized) {
+        database.begin("esp32db", false);
+      }
+      database.putString(AP_NAME, newWifiAccessPoint.c_str());
+
+      Serial.print("ap_name:");
+      Serial.println(database.getString(AP_NAME, ""));
+
+      database.end();
+      preferencesInitialized = false;
+
+      accessPointAttribute |= 1;   // x x x x x x x 1
+    } else if (wifiPasswordPosition != -1) {
+      wifiPasswordPosition += 16;
+      int endingChar = message.indexOf("\"}", wifiPasswordPosition);
+      newWifiPassword = message.substring(wifiPasswordPosition, endingChar);
+      Serial.println(newWifiPassword);
+
+      if (!preferencesInitialized) {
+        database.begin("esp32db", false);
+      }
+      database.putString(AP_PASSWORD, newWifiPassword.c_str());
+
+      Serial.print("ap_password:");
+      Serial.println(database.getString(AP_PASSWORD, ""));
+
+      database.end();
+      preferencesInitialized = false;
+
+      accessPointAttribute |= 2; // x x x x x x 1 x
+    }
+
+    if (accessPointAttribute == 3) {
+      WiFi.disconnect();
+      WiFi.begin(newWifiAccessPoint, newWifiPassword);
+      accessPointAttribute = 0;
+
+      Serial.print("Connecting to Wi-Fi");
+      while (WiFi.status() != WL_CONNECTED) {
+        currentTime = millis();
+        if(currentTime - pollingTime >= 500){
+          pollingTime = currentTime;
+
+          Serial.print(".");
+        }
+
+        // clear preferences
+        reading = digitalRead(BOOT_BUTTON_PIN);
+
+        // Jika status button berubah (karena noise atau tekanan), reset timer debounce
+        if (reading != lastButtonState) {
+          lastDebounceTime = millis();
+        }
+
+        // Cek apakah sudah melewati waktu debounce
+        if ((millis() - lastDebounceTime) > 50) {
+          // Jika status button sudah stabil
+          if (reading != buttonState) {
+            buttonState = reading;
+
+            // Hanya ubah status LED jika button ditekan (LOW)
+            if (buttonState == LOW) {
+              if (!preferencesInitialized) {
+                database.begin("esp32db", false);
+                preferencesInitialized = true;
+              }
+              database.clear();
+              Serial.println();
+              Serial.println("Semua preferences dihapus");
+              ESP.restart();
+            }
+          }
+        }
+
+        // Simpan status button terakhir
+        lastButtonState = reading;
+      }
+      Serial.println();
+      Serial.println("Connected to the Wi-Fi network");
     }
   }
 
@@ -119,18 +238,59 @@ void callback(char* topic, byte* payload, unsigned int length) {
 
 void reconnect() {
   while (!client.connected()) {
-    Serial.print("The client ");
-    Serial.print(MQTT_CLIENT_ID);
-    Serial.println(" connecting to the public MQTT broker");
-    if (client.connect(MQTT_CLIENT_ID)) {
-      Serial.println("Public EMQX MQTT broker connected");
-    } else {
-      Serial.print("failed with state ");
-      Serial.print(client.state());
-      Serial.println(" try again in 5 seconds");
-      delay(5000);
+    currentTime = millis();
+    if(currentTime - pollingTime >= 5000){
+      pollingTime = currentTime;
+      Serial.print("The client ");
+      Serial.print(MQTT_CLIENT_ID);
+      Serial.println(" connecting to the public MQTT broker");
+      if (client.connect(MQTT_CLIENT_ID, MQTT_USERNAME, MQTT_PASSWORD)) {
+        Serial.println("Public EMQX MQTT broker connected");
+      } else {
+        Serial.print("Failed with state ");
+        Serial.print(client.state());
+        Serial.println(" try again in 5 seconds");
+      }
     }
+
+    // clear preferences
+    reading = digitalRead(BOOT_BUTTON_PIN);
+
+    // Jika status button berubah (karena noise atau tekanan), reset timer debounce
+    if (reading != lastButtonState) {
+      lastDebounceTime = millis();
+    }
+
+    // Cek apakah sudah melewati waktu debounce
+    if ((millis() - lastDebounceTime) > 50) {
+      // Jika status button sudah stabil
+      if (reading != buttonState) {
+        buttonState = reading;
+
+        // Hanya ubah status LED jika button ditekan (LOW)
+        if (buttonState == LOW) {
+          if (!preferencesInitialized) {
+            database.begin("esp32db", false);
+            preferencesInitialized = true;
+          }
+          database.clear();
+          Serial.println("Semua preferences dihapus");
+          ESP.restart();
+        }
+      }
+    }
+
+    // Simpan status button terakhir
+    lastButtonState = reading;
   }
+
+  String MQTT_TOPIC_ATTR_REPL_REQ_PUB = MQTT_TOPIC_BASE_ATTR_REPL_REQ_PUB + String(requestAttributeId);
+  client.publish(MQTT_TOPIC_ATTR_REPL_REQ_PUB.c_str(),"{\"clientKeys\":\"cliattr1,cliattr2\",\"sharedKeys\":\"tele_period,sharedattr2\"}");
+  requestAttributeId++;
+
+  client.subscribe(MQTT_TOPIC_RPC_REQ_SUB); // rpc subscribe
+  client.subscribe(MQTT_TOPIC_ATTR_SUB); // telemetry period subscribe
+  client.subscribe(MQTT_TOPIC_ATTR_REPL_SUB); // attribute request -> response subscribe
 }
 
 /* void playWailingTone() {
@@ -175,15 +335,69 @@ void playWailingTone() {
 void setup() {
   // Set software serial baud to 115200;
   Serial.begin(115200);
+
   pinMode(TRIG_PIN, OUTPUT); // Sets the TRIG_PIN as an Output
   pinMode(ECHO_PIN, INPUT); // Sets the ECHO_PIN as an Input
+  pinMode(LED_PIN, OUTPUT);
+  pinMode(LED_PIN_ESP, OUTPUT);
+  pinMode(BOOT_BUTTON_PIN, INPUT_PULLUP);
+  /* tombol bawakan esp32, INPUT_PULLUP 
+  agar memastikan tombol bisa HIGH dan LOW dengan menghubungkannya ke VCC, dan ketika ditekan
+  tombol akan dihubungkan ke GND sehingga dia jadi LOW */
+  
+  database.begin("esp32db", false);
+  preferencesInitialized = true;
 
   // Connecting to a WiFi network
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  newWifiAccessPoint = database.getString(AP_NAME, "");
+  newWifiPassword = database.getString(AP_PASSWORD, "");
+
+  if (newWifiAccessPoint != "" && newWifiPassword != "") {
+    WiFi.begin(newWifiAccessPoint, newWifiPassword);
+    Serial.println("Menggunakan data dari preferences");
+  } else {
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  }
+
   Serial.print("Connecting to Wi-Fi");
   while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
+    currentTime = millis();
+    if(currentTime - pollingTime >= 500){
+      pollingTime = currentTime;
+
+      Serial.print(".");
+    }
+
+    // clear preferences
+    reading = digitalRead(BOOT_BUTTON_PIN);
+
+    // Jika status button berubah (karena noise atau tekanan), reset timer debounce
+    if (reading != lastButtonState) {
+      lastDebounceTime = millis();
+    }
+
+    // Cek apakah sudah melewati waktu debounce
+    if ((millis() - lastDebounceTime) > 50) {
+      // Jika status button sudah stabil
+      if (reading != buttonState) {
+        buttonState = reading;
+
+        // Hanya ubah status LED jika button ditekan (LOW)
+        if (buttonState == LOW) {
+          if (!preferencesInitialized) {
+            database.begin("esp32db", false);
+            preferencesInitialized = true;
+          }
+          database.clear();
+          Serial.println();
+          Serial.println("Semua preferences dihapus");
+          ESP.restart();
+        }
+      }
+    }
+
+    // Simpan status button terakhir
+    lastButtonState = reading;
   }
   Serial.println();
   Serial.println("Connected to the Wi-Fi network");
@@ -193,17 +407,51 @@ void setup() {
   client.setCallback(callback);
 
   while (!client.connected()) {
-    Serial.print("The client ");
-    Serial.print(MQTT_CLIENT_ID);
-    Serial.println(" connecting to the public MQTT broker");
-    if (client.connect(MQTT_CLIENT_ID, MQTT_USERNAME, MQTT_PASSWORD)) {
-      Serial.println("Public EMQX MQTT broker connected");
-    } else {
-      Serial.print("failed with state ");
-      Serial.print(client.state());
-      Serial.println(" try again in 5 seconds");
-      delay(5000);
+    currentTime = millis();
+    if(currentTime - pollingTime >= 5000){
+      pollingTime = currentTime;
+    
+      Serial.print("The client ");
+      Serial.print(MQTT_CLIENT_ID);
+      Serial.println(" connecting to the public MQTT broker");
+      if (client.connect(MQTT_CLIENT_ID, MQTT_USERNAME, MQTT_PASSWORD)) {
+        Serial.println("Public EMQX MQTT broker connected");
+      } else {
+        Serial.print("Failed with state ");
+        Serial.print(client.state());
+        Serial.println(" try again in 5 seconds");
+      }
     }
+
+    // clear preferences
+    reading = digitalRead(BOOT_BUTTON_PIN);
+
+    // Jika status button berubah (karena noise atau tekanan), reset timer debounce
+    if (reading != lastButtonState) {
+      lastDebounceTime = millis();
+    }
+
+    // Cek apakah sudah melewati waktu debounce
+    if ((millis() - lastDebounceTime) > 50) {
+      // Jika status button sudah stabil
+      if (reading != buttonState) {
+        buttonState = reading;
+
+        // Hanya ubah status LED jika button ditekan (LOW)
+        if (buttonState == LOW) {
+          if (!preferencesInitialized) {
+            database.begin("esp32db", false);
+            preferencesInitialized = true;
+          }
+          database.clear();
+          Serial.println("Semua preferences dihapus");
+          ESP.restart();
+        }
+      }
+    }
+
+    // Simpan status button terakhir
+    lastButtonState = reading;
   }
 
   String MQTT_TOPIC_ATTR_REPL_REQ_PUB = MQTT_TOPIC_BASE_ATTR_REPL_REQ_PUB + String(requestAttributeId);
@@ -213,9 +461,6 @@ void setup() {
   client.subscribe(MQTT_TOPIC_RPC_REQ_SUB); // rpc subscribe
   client.subscribe(MQTT_TOPIC_ATTR_SUB); // telemetry period subscribe
   client.subscribe(MQTT_TOPIC_ATTR_REPL_SUB); // attribute request -> response subscribe
-
-  pinMode(LED_PIN, OUTPUT);
-  pinMode(LED_PIN_ESP, OUTPUT);
 }
 
 void loop() {
@@ -297,4 +542,34 @@ void loop() {
   } else {
     digitalWrite(LED_PIN_ESP, LOW);
   }
+
+  // clear preferences
+  reading = digitalRead(BOOT_BUTTON_PIN);
+
+  // Jika status button berubah (karena noise atau tekanan), reset timer debounce
+  if (reading != lastButtonState) {
+    lastDebounceTime = millis();
+  }
+
+  // Cek apakah sudah melewati waktu debounce
+  if ((millis() - lastDebounceTime) > 50) {
+    // Jika status button sudah stabil
+    if (reading != buttonState) {
+      buttonState = reading;
+
+      // Hanya ubah status LED jika button ditekan (LOW)
+      if (buttonState == LOW) {
+        if (!preferencesInitialized) {
+          database.begin("esp32db", false);
+          preferencesInitialized = true;
+        }
+        database.clear();
+        Serial.println("Semua preferences dihapus");
+        ESP.restart();
+      }
+    }
+  }
+
+  // Simpan status button terakhir
+  lastButtonState = reading;
 }

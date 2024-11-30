@@ -41,7 +41,7 @@ uint32_t currentTime, pollingTime = 0, requestAttributeId = 1, lastDebounceTime 
 unsigned long duration;
 float distanceCm = 100;
 // float distanceInch;
-bool wailing = false, rpcState = false, innerLedState = false, preferencesInitialized = false;
+bool wailing = false, rpcState = false, innerLedState = false, preferencesInitialized = false, reconnectState = true;
 unsigned int frequency = 600, lastToneChange, currentTime2, telemetryPeriod = 2000, teleTime = 0;
 int8_t direction = 1, reading, lastButtonState = HIGH, buttonState;
 String publishMessage = "", newWifiAccessPoint = "", newWifiPassword = "", responseRpc;
@@ -238,9 +238,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
 
 void reconnect() {
   while (!client.connected()) {
-    currentTime = millis();
-    if(currentTime - pollingTime >= 5000){
-      pollingTime = currentTime;
+    if (!reconnectState) {
       Serial.print("The client ");
       Serial.print(MQTT_CLIENT_ID);
       Serial.println(" connecting to the public MQTT broker");
@@ -250,6 +248,23 @@ void reconnect() {
         Serial.print("Failed with state ");
         Serial.print(client.state());
         Serial.println(" try again in 5 seconds");
+      }
+      reconnectState = true;
+    } else {
+      currentTime = millis();
+      if(currentTime - pollingTime >= 5000){
+        pollingTime = currentTime;
+
+        Serial.print("The client ");
+        Serial.print(MQTT_CLIENT_ID);
+        Serial.println(" connecting to the public MQTT broker");
+        if (client.connect(MQTT_CLIENT_ID, MQTT_USERNAME, MQTT_PASSWORD)) {
+          Serial.println("Public EMQX MQTT broker connected");
+        } else {
+          Serial.print("Failed with state ");
+          Serial.print(client.state());
+          Serial.println(" try again in 5 seconds");
+        }
       }
     }
 
@@ -407,10 +422,7 @@ void setup() {
   client.setCallback(callback);
 
   while (!client.connected()) {
-    currentTime = millis();
-    if(currentTime - pollingTime >= 5000){
-      pollingTime = currentTime;
-    
+    if (reconnectState) {
       Serial.print("The client ");
       Serial.print(MQTT_CLIENT_ID);
       Serial.println(" connecting to the public MQTT broker");
@@ -420,6 +432,23 @@ void setup() {
         Serial.print("Failed with state ");
         Serial.print(client.state());
         Serial.println(" try again in 5 seconds");
+      }
+      reconnectState = false;
+    } else {
+      currentTime = millis();
+      if(currentTime - pollingTime >= 5000){
+        pollingTime = currentTime;
+
+        Serial.print("The client ");
+        Serial.print(MQTT_CLIENT_ID);
+        Serial.println(" connecting to the public MQTT broker");
+        if (client.connect(MQTT_CLIENT_ID, MQTT_USERNAME, MQTT_PASSWORD)) {
+          Serial.println("Public EMQX MQTT broker connected");
+        } else {
+          Serial.print("Failed with state ");
+          Serial.print(client.state());
+          Serial.println(" try again in 5 seconds");
+        }
       }
     }
 
@@ -466,6 +495,8 @@ void setup() {
 void loop() {
   if (!client.connected()) {
     reconnect();
+
+    reconnectState = false;
   }
 
   client.loop();

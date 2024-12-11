@@ -1,0 +1,4 @@
+[wokwi]
+version = 1
+firmware = './0011_esp8266_esp32_subscribe_OTA_MQTT.ino.bin'
+elf = './0011_esp8266_esp32_subscribe_OTA_MQTT.ino.elf'

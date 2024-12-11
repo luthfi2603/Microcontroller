@@ -14,10 +14,10 @@
 #define BOOT_BUTTON_PIN 0
 
 // WiFi
-/* #define WIFI_SSID "Wokwi-GUEST"
-#define WIFI_PASSWORD "" */
-#define WIFI_SSID "Redmi Note 13 Pro 5G"
-#define WIFI_PASSWORD "12121212"
+#define WIFI_SSID "Wokwi-GUEST"
+#define WIFI_PASSWORD ""
+/* #define WIFI_SSID "Redmi Note 13 Pro 5G"
+#define WIFI_PASSWORD "12121212" */
 
 // MQTT Broker
 #define MQTT_BROKER "202.0.107.154"
@@ -41,7 +41,7 @@ uint32_t currentTime, pollingTime = 0, requestAttributeId = 1, lastDebounceTime 
 unsigned long duration;
 float distanceCm = 100;
 // float distanceInch;
-bool wailing = false, rpcState = false, innerLedState = false, preferencesInitialized = false, reconnectState = true;
+bool wailing = false, rpcState = false, innerLedState = false, reconnectState = true;
 unsigned int frequency = 600, lastToneChange, currentTime2, telemetryPeriod = 2000, teleTime = 0;
 int8_t direction = 1, reading, lastButtonState = HIGH, buttonState;
 String publishMessage = "", newWifiAccessPoint = "", newWifiPassword = "", responseRpc;
@@ -76,11 +76,10 @@ void callback(char* topic, byte* payload, unsigned int length) {
 
         // clear preferences
         if (message.substring((message.indexOf("pin") + 5), (message.indexOf("pin") + 6)) == "1") {
-          if (!preferencesInitialized) {
-            database.begin("esp32db", false);
-            preferencesInitialized = true;
-          }
+          database.begin("esp32db", false);
           database.clear();
+          database.end();
+
           Serial.println("Semua preferences dihapus");
         }
       } else {
@@ -106,14 +105,12 @@ void callback(char* topic, byte* payload, unsigned int length) {
         innerLedState = false;
       }
 
-      if (!preferencesInitialized) {
-        database.begin("esp32db", false);
-        preferencesInitialized = true;
-      }
+      database.begin("esp32db", false);
       Serial.print("ap_name:");
       Serial.println(database.getString(AP_NAME, ""));
       Serial.print("ap_password:");
       Serial.println(database.getString(AP_PASSWORD, ""));
+      database.end();
     } 
 
     int requestIdPos = topicStr.indexOf("v1/devices/me/rpc/request/") + 26;
@@ -151,16 +148,13 @@ void callback(char* topic, byte* payload, unsigned int length) {
       newWifiAccessPoint = message.substring(wifiAccessPointPosition, endingChar);
       Serial.println(newWifiAccessPoint);
 
-      if (!preferencesInitialized) {
-        database.begin("esp32db", false);
-      }
+      database.begin("esp32db", false);
       database.putString(AP_NAME, newWifiAccessPoint.c_str());
 
       Serial.print("ap_name:");
       Serial.println(database.getString(AP_NAME, ""));
 
       database.end();
-      preferencesInitialized = false;
 
       accessPointAttribute |= 1;   // x x x x x x x 1
     } else if (wifiPasswordPosition != -1) {
@@ -169,16 +163,13 @@ void callback(char* topic, byte* payload, unsigned int length) {
       newWifiPassword = message.substring(wifiPasswordPosition, endingChar);
       Serial.println(newWifiPassword);
 
-      if (!preferencesInitialized) {
-        database.begin("esp32db", false);
-      }
+      database.begin("esp32db", false);
       database.putString(AP_PASSWORD, newWifiPassword.c_str());
 
       Serial.print("ap_password:");
       Serial.println(database.getString(AP_PASSWORD, ""));
 
       database.end();
-      preferencesInitialized = false;
 
       accessPointAttribute |= 2; // x x x x x x 1 x
     }
@@ -213,11 +204,10 @@ void callback(char* topic, byte* payload, unsigned int length) {
 
             // Hanya ubah status LED jika button ditekan (LOW)
             if (buttonState == LOW) {
-              if (!preferencesInitialized) {
-                database.begin("esp32db", false);
-                preferencesInitialized = true;
-              }
+              database.begin("esp32db", false);
               database.clear();
+              database.end();
+
               Serial.println();
               Serial.println("Semua preferences dihapus");
               ESP.restart();
@@ -284,11 +274,10 @@ void reconnect() {
 
         // Hanya ubah status LED jika button ditekan (LOW)
         if (buttonState == LOW) {
-          if (!preferencesInitialized) {
-            database.begin("esp32db", false);
-            preferencesInitialized = true;
-          }
+          database.begin("esp32db", false);
           database.clear();
+          database.end();
+
           Serial.println("Semua preferences dihapus");
           ESP.restart();
         }
@@ -300,7 +289,7 @@ void reconnect() {
   }
 
   String MQTT_TOPIC_ATTR_REPL_REQ_PUB = MQTT_TOPIC_BASE_ATTR_REPL_REQ_PUB + String(requestAttributeId);
-  client.publish(MQTT_TOPIC_ATTR_REPL_REQ_PUB.c_str(),"{\"clientKeys\":\"cliattr1,cliattr2\",\"sharedKeys\":\"tele_period,sharedattr2\"}");
+  client.publish(MQTT_TOPIC_ATTR_REPL_REQ_PUB.c_str(), "{\"clientKeys\":\"cliattr1,cliattr2\",\"sharedKeys\":\"tele_period,sharedattr2\"}");
   requestAttributeId++;
 
   client.subscribe(MQTT_TOPIC_RPC_REQ_SUB); // rpc subscribe
@@ -361,11 +350,11 @@ void setup() {
   tombol akan dihubungkan ke GND sehingga dia jadi LOW */
   
   database.begin("esp32db", false);
-  preferencesInitialized = true;
 
   // Connecting to a WiFi network
   newWifiAccessPoint = database.getString(AP_NAME, "");
   newWifiPassword = database.getString(AP_PASSWORD, "");
+  database.end();
 
   if (newWifiAccessPoint != "" && newWifiPassword != "") {
     WiFi.begin(newWifiAccessPoint, newWifiPassword);
@@ -399,11 +388,10 @@ void setup() {
 
         // Hanya ubah status LED jika button ditekan (LOW)
         if (buttonState == LOW) {
-          if (!preferencesInitialized) {
-            database.begin("esp32db", false);
-            preferencesInitialized = true;
-          }
+          database.begin("esp32db", false);
           database.clear();
+          database.end();
+
           Serial.println();
           Serial.println("Semua preferences dihapus");
           ESP.restart();
@@ -468,11 +456,10 @@ void setup() {
 
         // Hanya ubah status LED jika button ditekan (LOW)
         if (buttonState == LOW) {
-          if (!preferencesInitialized) {
-            database.begin("esp32db", false);
-            preferencesInitialized = true;
-          }
+          database.begin("esp32db", false);
           database.clear();
+          database.end();
+
           Serial.println("Semua preferences dihapus");
           ESP.restart();
         }
@@ -484,7 +471,12 @@ void setup() {
   }
 
   String MQTT_TOPIC_ATTR_REPL_REQ_PUB = MQTT_TOPIC_BASE_ATTR_REPL_REQ_PUB + String(requestAttributeId);
-  client.publish(MQTT_TOPIC_ATTR_REPL_REQ_PUB.c_str(),"{\"clientKeys\":\"cliattr1,cliattr2\",\"sharedKeys\":\"tele_period,sharedattr2\"}");
+  client.publish(MQTT_TOPIC_ATTR_REPL_REQ_PUB.c_str(), "{\"clientKeys\":\"cliattr1,cliattr2\",\"sharedKeys\":\"tele_period,sharedattr2\"}");
+
+  Serial.print("Topic: ");
+  Serial.println(MQTT_TOPIC_ATTR_REPL_REQ_PUB);
+  Serial.println("Publish: {\"clientKeys\":\"cliattr1,cliattr2\",\"sharedKeys\":\"tele_period,sharedattr2\"}");
+
   requestAttributeId++;
 
   client.subscribe(MQTT_TOPIC_RPC_REQ_SUB); // rpc subscribe
@@ -590,11 +582,10 @@ void loop() {
 
       // Hanya ubah status LED jika button ditekan (LOW)
       if (buttonState == LOW) {
-        if (!preferencesInitialized) {
-          database.begin("esp32db", false);
-          preferencesInitialized = true;
-        }
+        database.begin("esp32db", false);
         database.clear();
+        database.end();
+
         Serial.println("Semua preferences dihapus");
         ESP.restart();
       }

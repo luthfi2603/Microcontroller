@@ -12,7 +12,9 @@
 #define WIFI_PASSWORD "12121212"
 
 // MQTT Broker
-#define MQTT_BROKER "202.0.107.154"
+// #define MQTT_BROKER "202.0.107.154"
+// #define MQTT_BROKER "104.21.29.234"
+#define MQTT_BROKER "thingsboard.aiot.my.id"
 #define MQTT_CLIENT_ID "gk1knjlm2q7ziovicfyl"
 #define MQTT_USERNAME "bz3s6e4s6984x216el78"
 #define MQTT_PASSWORD "50smc2bh7g6zmx9biswz"

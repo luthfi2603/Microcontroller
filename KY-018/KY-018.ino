@@ -6,15 +6,15 @@
 #define RELAY_PIN 16
 
 // wifi
-/* #define WIFI_SSID "Wokwi-GUEST"
-#define WIFI_PASSWORD "" */
-#define WIFI_SSID "Redmi Note 13 Pro 5G"
-#define WIFI_PASSWORD "12121212"
+#define WIFI_SSID "Wokwi-GUEST"
+#define WIFI_PASSWORD ""
+/* #define WIFI_SSID "Redmi Note 13 Pro 5G"
+#define WIFI_PASSWORD "12121212" */
 
 // MQTT Broker
 // #define MQTT_BROKER "202.0.107.154"
-// #define MQTT_BROKER "104.21.29.234"
-#define MQTT_BROKER "thingsboard.aiot.my.id"
+#define MQTT_BROKER "185.199.111.153"
+// #define MQTT_BROKER "thingsboard.aiot.my.id"
 #define MQTT_CLIENT_ID "gk1knjlm2q7ziovicfyl"
 #define MQTT_USERNAME "bz3s6e4s6984x216el78"
 #define MQTT_PASSWORD "50smc2bh7g6zmx9biswz"
@@ -105,6 +105,8 @@ void callback(char* topic, byte* payload, uint32_t length) {
   Serial.println("--------------------------------");
 }
 
+uint32_t requestAttributeId = 1;
+
 void reconnect() {
   while (!client.connected()) {
     Serial.print("The client ");
@@ -145,8 +147,6 @@ void reconnect() {
   client.subscribe(MQTT_TOPIC_ATTR_SUB); // telemetry period subscribe
   client.subscribe(MQTT_TOPIC_ATTR_REPL_SUB); // attribute request -> response subscribe
 }
-
-uint32_t requestAttributeId = 1;
 
 void setup() {
   Serial.begin(115200); // setel baud

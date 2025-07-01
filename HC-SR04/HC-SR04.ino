@@ -21,8 +21,7 @@
 
 // MQTT Broker
 // #define MQTT_BROKER "202.0.107.154"
-#define MQTT_BROKER "104.21.29.234"
-// #define MQTT_BROKER "thingsboard.aiot.my.id"
+#define MQTT_BROKER "thingsboard.aiot.my.id"
 #define MQTT_CLIENT_ID "ngbwkezpf0jy8k5jql6l"
 #define MQTT_USERNAME "zsxetv8eaqrewlq5ztaj"
 #define MQTT_PASSWORD "b1kjtw5mabmba3sjmwgx"

@@ -13,11 +13,10 @@
 
 // MQTT Broker
 // #define MQTT_BROKER "202.0.107.154"
-#define MQTT_BROKER "185.199.111.153"
-// #define MQTT_BROKER "thingsboard.aiot.my.id"
-#define MQTT_CLIENT_ID "gk1knjlm2q7ziovicfyl"
-#define MQTT_USERNAME "bz3s6e4s6984x216el78"
-#define MQTT_PASSWORD "50smc2bh7g6zmx9biswz"
+#define MQTT_BROKER "thingsboard.aiot.my.id"
+#define MQTT_CLIENT_ID "b5praadqnmxaxhph0mar"
+#define MQTT_USERNAME "qsz35j1dxdfuzs2c5mbh"
+#define MQTT_PASSWORD "18fybhco2hah52ilv47j"
 #define MQTT_PORT 1983
 #define MQTT_TOPIC_TELE_PUB "v1/devices/me/telemetry" // untuk publish
 #define MQTT_TOPIC_RPC_REQ_SUB "v1/devices/me/rpc/request/+" // untuk RPC (remote procedural call) menerima data/perintah dari server

@@ -1,26 +1,25 @@
 #include <DHT.h>
 
-#define DHT_PIN 15
-#define DHTTYPE DHT22
+#define DHT_PIN 13
+#define DHT_TYPE DHT22
 #define LED_PIN 2
+#define INTERVAL 1000
 
-DHT dht(DHT_PIN, DHTTYPE);
+DHT dht(DHT_PIN, DHT_TYPE);
 
 void setup() {
   Serial.begin(9600);
-  // pinMode(DHT_PIN, INPUT);
   pinMode(LED_PIN, OUTPUT);
 
   dht.begin();
 }
 
 uint32_t previousMilis = 0, currentMilis;
-uint16_t interval = 1000;
 float humidity, temperature;
 
 void loop() {
   currentMilis = millis();
-  if (currentMilis - previousMilis >= interval) {
+  if (currentMilis - previousMilis >= INTERVAL) {
     previousMilis = currentMilis;
 
     humidity = dht.readHumidity(); // Membaca kelembaban

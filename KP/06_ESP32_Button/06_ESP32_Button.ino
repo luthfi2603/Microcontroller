@@ -2,7 +2,7 @@
 #define LED_PIN 4
 
 void setup() {
-  Serial.begin(9600);
+  Serial.begin(115200);
   pinMode(BUTTON_PIN, INPUT_PULLUP);
   pinMode(LED_PIN, OUTPUT);
 }
@@ -16,7 +16,7 @@ void loop() {
 
   // Jika status button berubah (karena noise atau tekanan), reset timer debounce
   if (reading != lastButtonState) {
-    Serial.print("STATUS : ");
+    Serial.print("STATUS: ");
     Serial.println(reading);
     lastDebounceTime = millis();
   }

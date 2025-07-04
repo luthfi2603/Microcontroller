@@ -18,7 +18,7 @@
 #define WIFI_PASSWORD "IoTDLCBLt4?"
 
 void setup() {
-  Serial.begin(9600);
+  Serial.begin(115200);
   pinMode(RCWL_PIN, INPUT);
   pinMode(LED_PIN_1, OUTPUT);
   pinMode(LED_PIN_2, OUTPUT);

@@ -14,7 +14,7 @@
 DHT dht(DHT_PIN, DHTTYPE);
 
 void setup() {
-    Serial.begin(9600);
+    Serial.begin(115200);
     pinMode(BUZZER_PIN, OUTPUT);
     pinMode(LED_PIN, OUTPUT);
     pinMode(DHT_PIN, INPUT);

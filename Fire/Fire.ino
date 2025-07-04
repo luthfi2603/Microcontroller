@@ -18,7 +18,7 @@ String kondisi = "";
 #define LED_PIN 4
 
 void setup() {
-    Serial.begin(9600);
+    Serial.begin(115200);
     pinMode(FLAME_PIN, INPUT);
     pinMode(BUZZER_PIN, OUTPUT);
     pinMode(LED_PIN, OUTPUT);

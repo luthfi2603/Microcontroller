@@ -2,7 +2,7 @@
 #define LED_PIN 2
 
 void setup() {
-  Serial.begin(9600);
+  Serial.begin(115200);
   pinMode(RCWL_PIN, INPUT);
   pinMode(LED_PIN, OUTPUT);
 }

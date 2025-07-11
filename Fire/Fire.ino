@@ -41,15 +41,15 @@ void setup() {
     };
 }
 
-unsigned long previousMilis = 0, currentMilis;
+unsigned long previousMillis = 0, currentMillis;
 const long interval = 3000;
 int api = 0;
 
 void loop() {
     thing.handle();
-    currentMilis = millis();
-    if (currentMilis - previousMilis >= interval) {
-        previousMilis = currentMilis;
+    currentMillis = millis();
+    if (currentMillis - previousMillis >= interval) {
+        previousMillis = currentMillis;
 
         api = digitalRead(FLAME_PIN);
         if (api) {

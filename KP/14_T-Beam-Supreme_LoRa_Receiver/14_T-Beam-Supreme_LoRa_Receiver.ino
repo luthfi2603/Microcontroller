@@ -1,9 +1,9 @@
 #include <RadioLib.h>
 
-#define LORA_NSS      10
-#define LORA_BUSY     8
-#define LORA_RST      9
-#define LORA_DIO1     3
+#define LORA_NSS 10
+#define LORA_BUSY 4
+#define LORA_RST 5
+#define LORA_DIO1 1
 
 SX1262 lora = new Module(LORA_NSS, LORA_DIO1, LORA_RST, LORA_BUSY);
 
@@ -24,18 +24,20 @@ void setup() {
   }
 }
 
-void loop() {
-  String message = "Hello from T-Beam Supreme!";
-  Serial.print("Mengirim: ");
-  Serial.println(message);
+String message;
 
-  state = lora.transmit(message);
+void loop() {
+  state = lora.receive(message);
+
   if (state == RADIOLIB_ERR_NONE) {
-    Serial.println("Pengiriman sukses!");
+    Serial.print("Pesan diterima: ");
+    Serial.println(message);
+  } else if (state == RADIOLIB_ERR_RX_TIMEOUT) {
+    Serial.println("Timeout...");
   } else {
-    Serial.print("Gagal kirim, kode: ");
+    Serial.print("Receive error, code: ");
     Serial.println(state);
   }
 
-  delay(5000);
+  delay(1000);
 }

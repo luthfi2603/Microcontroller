@@ -14,13 +14,13 @@ void setup() {
   dht.begin();
 }
 
-uint32_t previousMilis = 0, currentMilis;
+uint32_t previousMillis = 0, currentMillis;
 float humidity, temperature;
 
 void loop() {
-  currentMilis = millis();
-  if (currentMilis - previousMilis >= INTERVAL) {
-    previousMilis = currentMilis;
+  currentMillis = millis();
+  if (currentMillis - previousMillis >= INTERVAL) {
+    previousMillis = currentMillis;
 
     humidity = dht.readHumidity(); // Membaca kelembaban
     temperature = dht.readTemperature(); // Membaca suhu dalam Celcius

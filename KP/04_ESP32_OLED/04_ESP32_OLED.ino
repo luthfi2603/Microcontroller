@@ -3,8 +3,8 @@
 #include <Adafruit_SSD1306.h>
 
 // Ubah jika OLED-mu pakai alamat I2C selain 0x3C
-#define SCREEN_ADDRESS 0x3C 
-#define SCREEN_WIDTH  128
+#define SCREEN_ADDRESS 0x3C
+#define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
 
 // Default ESP32 I2C pins (SDA = GPIO21, SCL = GPIO22)

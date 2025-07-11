@@ -26,13 +26,13 @@ void setup() {
     dht.begin();
 }
 
-unsigned long previousMilis = 0, currentMilis;
+unsigned long previousMillis = 0, currentMillis;
 const long interval = 1000;
 
 void loop() {
-    currentMilis = millis();
-    if (currentMilis - previousMilis >= interval) {
-        previousMilis = currentMilis;
+    currentMillis = millis();
+    if (currentMillis - previousMillis >= interval) {
+        previousMillis = currentMillis;
 
         float humidity = dht.readHumidity(); // Membaca kelembaban
         float temperature = dht.readTemperature(); // Membaca suhu dalam Celcius

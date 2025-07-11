@@ -6,12 +6,12 @@ void setup() {
 }
 
 bool state = true;
-uint32_t previousMilis = 0, currentMilis;
+uint32_t previousMillis = 0, currentMillis;
 
 void loop() {
-  currentMilis = millis();
-  if (currentMilis - previousMilis >= INTERVAL) {
-    previousMilis = currentMilis;
+  currentMillis = millis();
+  if (currentMillis - previousMillis >= INTERVAL) {
+    previousMillis = currentMillis;
 
     if (state) {
       digitalWrite(LED_PIN, HIGH);

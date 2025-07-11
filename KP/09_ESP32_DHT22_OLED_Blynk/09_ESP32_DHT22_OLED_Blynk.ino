@@ -49,14 +49,14 @@ void setup() {
   Blynk.begin(BLYNK_AUTH_TOKEN, WIFI_SSID, WIFI_PASSWORD);
 }
 
-uint32_t previousMilis = 0, currentMilis;
+uint32_t previousMillis = 0, currentMillis;
 float humidity, temperature;
 
 void loop() {
   Blynk.run();
-  currentMilis = millis();
-  if (currentMilis - previousMilis >= INTERVAL) {
-    previousMilis = currentMilis;
+  currentMillis = millis();
+  if (currentMillis - previousMillis >= INTERVAL) {
+    previousMillis = currentMillis;
 
     humidity = dht.readHumidity(); // Membaca kelembaban
     temperature = dht.readTemperature(); // Membaca suhu dalam Celcius

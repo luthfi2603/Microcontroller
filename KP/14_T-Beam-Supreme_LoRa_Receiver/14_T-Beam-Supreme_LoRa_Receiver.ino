@@ -1,6 +1,5 @@
 #include <RadioLib.h>
 #include <Wire.h>
-#include <SPI.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SH110X.h>
 
@@ -21,6 +20,15 @@ Adafruit_SH1106G display = Adafruit_SH1106G(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire);
 
 SX1262 lora = new Module(LORA_NSS, LORA_DIO1, LORA_RST, LORA_BUSY);
 
+volatile bool receivedFlag = false;
+
+#if defined(ESP8266) || defined(ESP32)
+  ICACHE_RAM_ATTR
+#endif
+void setFlag(void) {
+  receivedFlag = true;
+}
+
 int8_t state;
 
 void setup() {
@@ -38,11 +46,34 @@ void setup() {
   Serial.println("Initializing LoRa...");
   state = lora.begin();
   if (state == RADIOLIB_ERR_NONE) {
+    lora.setFrequency(923.0);         // untuk Indonesia gunakan 923.0 MHz
+    lora.setBandwidth(125.0);         // BW = 125 kHz
+    lora.setSpreadingFactor(7);       // SF7
+    lora.setCodingRate(5);            // CR 4/5
+    lora.setOutputPower(22);          // 22 dBm, maksimal power T-Beam
+
     Serial.println("LoRa init success!");
+
+    /* while (lora.startReceive() != RADIOLIB_ERR_NONE) {
+      delay(500);
+      Serial.print(".");
+      } */
+     
+    lora.setPacketReceivedAction(setFlag); // Set callback, kalok ada yang diterima
+    
+    Serial.println(F("LoRa Starting to listen..."));
+    state = lora.startReceive(); // Buat jadi mode reciever
+    if (state == RADIOLIB_ERR_NONE) {
+      Serial.println(F("Success!"));
+    } else {
+      Serial.print(F("Failed, code: "));
+      Serial.print(state);
+      while (true) { delay(10); }
+    }
   } else {
     Serial.print("LoRa init failed, code: ");
     Serial.print(state);
-    while (true);
+    while (true) { delay(10); }
   }
 
   // Tampilan awal
@@ -57,34 +88,36 @@ void setup() {
 String message;
 
 void loop() {
-  state = lora.receive(message);
+  // if (lora.available()) {
+  if (receivedFlag) {
+    receivedFlag = false;
+    state = lora.readData(message);
 
-  if (state == RADIOLIB_ERR_NONE) {
-    Serial.print("----------------\nMessage received: ");
-    Serial.println(message);
+    if (state == RADIOLIB_ERR_NONE) {
+      Serial.println("----------------\nMessage received: ");
+      Serial.println(message);
 
-    display.clearDisplay();
-    display.setCursor(0, 0);
-    display.println("Reception success!");
-    display.print(message);
-    display.display();
-  } else if (state == RADIOLIB_ERR_RX_TIMEOUT) {
-    Serial.println("Timeout...");
+      display.clearDisplay();
+      display.setCursor(0, 0);
+      display.println("Reception success!");
+      display.print(message);
+      display.display();
+    } else if (state == RADIOLIB_ERR_RX_TIMEOUT) {
+      Serial.println("Timeout...");
 
-    display.clearDisplay();
-    display.setCursor(0, 0);
-    display.print("Timeout...");
-    display.display();
-  } else {
-    Serial.print("Receive error, code: ");
-    Serial.println(state);
+      display.clearDisplay();
+      display.setCursor(0, 0);
+      display.print("Timeout...");
+      display.display();
+    } else {
+      Serial.print("Receive error, code: ");
+      Serial.println(state);
 
-    display.clearDisplay();
-    display.setCursor(0, 0);
-    display.print("Receive error, code: ");
-    display.print(state);
-    display.display();
+      display.clearDisplay();
+      display.setCursor(0, 0);
+      display.print("Receive error, code: ");
+      display.print(state);
+      display.display();
+    }
   }
-
-  delay(1000);
 }

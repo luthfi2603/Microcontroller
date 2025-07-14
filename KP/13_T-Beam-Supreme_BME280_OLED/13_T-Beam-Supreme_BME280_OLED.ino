@@ -38,7 +38,7 @@ void setup() {
   Serial.println("Mendeteksi BME280...");
   if (!bme.begin(BME_ADDRESS)) {  // Ganti ke 0x77 jika 0x76 tidak terdeteksi
     Serial.println("Sensor BME280 tidak ditemukan! Cek koneksi");
-    while (1);
+    while (true) { delay(10); }
   }
   Serial.println("BME280 ditemukan");
 

@@ -1,6 +1,5 @@
 #include <RadioLib.h>
 #include <Wire.h>
-#include <SPI.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SH110X.h>
 #include <Adafruit_BME280.h>
@@ -45,18 +44,24 @@ void setup() {
   Serial.println("Initializing LoRa...");
   state = lora.begin();
   if (state == RADIOLIB_ERR_NONE) {
+    lora.setFrequency(923.0);         // untuk Indonesia gunakan 923.0 MHz
+    lora.setBandwidth(125.0);         // BW = 125 kHz
+    lora.setSpreadingFactor(7);       // SF7
+    lora.setCodingRate(5);            // CR 4/5
+    lora.setOutputPower(22);          // 22 dBm, maksimal power T-Beam
+
     Serial.println("LoRa init success!");
   } else {
     Serial.print("LoRa init failed, code: ");
     Serial.println(state);
-    while (true);
+    while (true) { delay(10); }
   }
 
   // BME280
   Serial.println("Detect BME280...");
   if (!bme.begin(BME_ADDRESS)) {  // Ganti ke 0x77 jika 0x76 tidak terdeteksi
     Serial.println("Sensor BME280 not found! Check connection");
-    while (1);
+    while (true) { delay(10); }
   }
   Serial.println("BME280 detected");
 
@@ -84,7 +89,7 @@ void loop() {
     humidity = bme.readHumidity();
     pressure = bme.readPressure() / 100.0F;  // hPa
 
-    message = String("{\n  \"temp\": ") + temperature + ",\n  \"hum\": " + humidity + ",\n  \"press\": " + pressure + ",\n}";
+    message = String("{\n  \"temp\": ") + temperature + ",\n  \"hum\": " + humidity + ",\n  \"press\": " + pressure + "\n}";
     // message = "Hello World";
 
     Serial.println("----------------\nTransmit:");

@@ -38,7 +38,7 @@ void setup() {
 
   if (!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
     Serial.println("OLED SSD1306 tidak terdeteksi. Periksa wiring & alamat I2C!");
-    while (true); // berhenti di sini
+    while (true) { delay(10); } // berhenti di sini
   }
 
   display.clearDisplay();

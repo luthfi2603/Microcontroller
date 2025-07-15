@@ -18,7 +18,7 @@
 // OLED display (SH1106G 128x64)
 Adafruit_SH1106G display = Adafruit_SH1106G(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire);
 
-SX1262 lora = new Module(LORA_NSS, LORA_DIO1, LORA_RST, LORA_BUSY);
+SX1262 loRa = new Module(LORA_NSS, LORA_DIO1, LORA_RST, LORA_BUSY);
 
 volatile bool receivedFlag = false;
 
@@ -44,27 +44,27 @@ void setup() {
   display.display();
 
   Serial.println("Initializing LoRa...");
-  state = lora.begin();
+  state = loRa.begin();
   if (state == RADIOLIB_ERR_NONE) {
-    lora.setFrequency(923.0);         // untuk Indonesia gunakan 923.0 MHz
-    lora.setBandwidth(125.0);         // BW = 125 kHz
-    lora.setSpreadingFactor(7);       // SF7
-    lora.setCodingRate(5);            // CR 4/5
-    lora.setOutputPower(22);          // 22 dBm, maksimal power T-Beam
+    loRa.setFrequency(923.2);         // untuk Indonesia gunakan 923.0 MHz
+    loRa.setBandwidth(125.0);         // BW = 125 kHz
+    loRa.setSpreadingFactor(7);       // SF7
+    loRa.setCodingRate(5);            // CR 4/5
+    loRa.setOutputPower(22);          // 22 dBm, maksimal power T-Beam
 
     Serial.println("LoRa init success!");
 
-    /* while (lora.startReceive() != RADIOLIB_ERR_NONE) {
+    /* while (loRa.startReceive() != RADIOLIB_ERR_NONE) {
       delay(500);
       Serial.print(".");
       } */
      
-    lora.setPacketReceivedAction(setFlag); // Set callback, kalok ada yang diterima
+    loRa.setPacketReceivedAction(setFlag); // Set callback, kalok ada yang diterima
     
-    Serial.println(F("LoRa Starting to listen..."));
-    state = lora.startReceive(); // Buat jadi mode reciever
+    Serial.println(F("LoRa starting to listen..."));
+    state = loRa.startReceive(); // Buat jadi mode receiver
     if (state == RADIOLIB_ERR_NONE) {
-      Serial.println(F("Success!"));
+      Serial.println(F("Success!\nWaiting for packets..."));
     } else {
       Serial.print(F("Failed, code: "));
       Serial.print(state);
@@ -80,7 +80,7 @@ void setup() {
   display.setTextSize(1);
   display.setTextColor(SH110X_WHITE);
   display.setCursor(0, 0);
-  display.println("LoRa Receiver Ready...");
+  display.print("LoRa Receiver Ready...");
   display.display();
   delay(1000);
 }
@@ -88,10 +88,10 @@ void setup() {
 String message;
 
 void loop() {
-  // if (lora.available()) {
+  // if (loRa.available()) {
   if (receivedFlag) {
     receivedFlag = false;
-    state = lora.readData(message);
+    state = loRa.readData(message);
 
     if (state == RADIOLIB_ERR_NONE) {
       Serial.println("----------------\nMessage received: ");

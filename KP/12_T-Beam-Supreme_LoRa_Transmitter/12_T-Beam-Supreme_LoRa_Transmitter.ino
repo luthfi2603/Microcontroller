@@ -23,7 +23,7 @@
 // OLED display (SH1106G 128x64)
 Adafruit_SH1106G display = Adafruit_SH1106G(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire);
 
-SX1262 lora = new Module(LORA_NSS, LORA_DIO1, LORA_RST, LORA_BUSY);
+SX1262 loRa = new Module(LORA_NSS, LORA_DIO1, LORA_RST, LORA_BUSY);
 
 Adafruit_BME280 bme;
 
@@ -42,13 +42,13 @@ void setup() {
   display.display();
 
   Serial.println("Initializing LoRa...");
-  state = lora.begin();
+  state = loRa.begin();
   if (state == RADIOLIB_ERR_NONE) {
-    lora.setFrequency(923.0);         // untuk Indonesia gunakan 923.0 MHz
-    lora.setBandwidth(125.0);         // BW = 125 kHz
-    lora.setSpreadingFactor(7);       // SF7
-    lora.setCodingRate(5);            // CR 4/5
-    lora.setOutputPower(22);          // 22 dBm, maksimal power T-Beam
+    loRa.setFrequency(923.2);         // untuk Indonesia gunakan 923.0 MHz
+    loRa.setBandwidth(125.0);         // BW = 125 kHz
+    loRa.setSpreadingFactor(7);       // SF7
+    loRa.setCodingRate(5);            // CR 4/5
+    loRa.setOutputPower(22);          // 22 dBm, maksimal power T-Beam
 
     Serial.println("LoRa init success!");
   } else {
@@ -95,7 +95,7 @@ void loop() {
     Serial.println("----------------\nTransmit:");
     Serial.println(message);
 
-    state = lora.transmit(message);
+    state = loRa.transmit(message);
     if (state == RADIOLIB_ERR_NONE) {
       Serial.println("Transmission success!");
 

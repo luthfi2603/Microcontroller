@@ -120,8 +120,7 @@ uint8_t nodeNwsKey[16] = {0x7E, 0xAC, 0xE2, 0x55, 0xB8, 0xA5, 0xE2, 0x69, 0x91, 
 
 uint8_t nodeAppsKey[16] = {0xFB, 0xAC, 0xB6, 0x47, 0xF3, 0x58, 0x45, 0xC7, 0x50, 0x7D, 0xBF, 0x16, 0x8B, 0xA8, 0xC1, 0x7C};
 
-void setup()
-{
+void setup() {
 	pinMode(LED_BUILTIN, OUTPUT);
 	digitalWrite(LED_BUILTIN, LOW);
 
@@ -160,23 +159,20 @@ void setup()
 #ifndef RAK4630
 	// Initialize LoRa chip.
 	uint32_t err_code = lora_hardware_init(hwConfig);
-	if (err_code != 0)
-	{
+	if (err_code != 0) {
 		Serial.printf("lora_hardware_init failed - %d\n", err_code);
 	}
 #else
 	// Initialize LoRa chip.
 	uint32_t err_code = lora_rak4630_init();
-	if (err_code != 0)
-	{
+	if (err_code != 0) {
 		Serial.printf("lora_hardware_init failed - %d\n", err_code);
 	}
 #endif
 	
 	// Initialize Scheduler and timer (Must be after lora_hardware_init)
 	err_code = timers_init();
-	if (err_code != 0)
-	{
+	if (err_code != 0) {
 		Serial.printf("timers_init failed - %d\n", err_code);
 	}
 
@@ -190,8 +186,7 @@ void setup()
 
 	// Initialize LoRaWan
 	err_code = lmh_init(&lora_callbacks, lora_param_init, true, CLASS_A, LORAMAC_REGION_AS923_3);
-	if (err_code != 0)
-	{
+	if (err_code != 0) {
 		Serial.printf("lmh_init failed - %d\n", err_code);
 	}
 
@@ -209,8 +204,7 @@ void setup()
 	// For some regions we might need to define the sub band the gateway is listening to
 	// This must be called AFTER lmh_init()
 	/// \todo This is for Dragino LPS8 gateway. How about other gateways???
-	if (!lmh_setSubBandChannels(1))
-	{
+	if (!lmh_setSubBandChannels(1)) {
 		Serial.println("lmh_setSubBandChannels failed. Wrong sub band requested?");
 	}
 
@@ -218,8 +212,7 @@ void setup()
 	lmh_join();
 }
 
-void loop()
-{
+void loop() {
 #ifdef ESP8266
 	// Handle Radio events
 	Radio.IrqProcess();
@@ -230,8 +223,7 @@ void loop()
 
 /**@brief LoRa function for handling OTAA join failed
 */
-static void lorawan_join_failed_handler(void)
-{
+static void lorawan_join_failed_handler(void) {
 	Serial.println("OVER_THE_AIR_ACTIVATION failed!");
 	Serial.println("Check your EUI's and Keys's!");
 	Serial.println("Check if a Gateway is in range!");
@@ -239,14 +231,13 @@ static void lorawan_join_failed_handler(void)
 
 /**@brief LoRa function for handling HasJoined event.
 */
-static void lorawan_has_joined_handler(void)
-{
+static void lorawan_has_joined_handler(void) {
 #if (OVER_THE_AIR_ACTIVATION != 0)
 	Serial.println("Network Joined");
 #else
 	Serial.println("OVER_THE_AIR_ACTIVATION != 0");
-
 #endif
+
 	lmh_class_request(CLASS_A);
 
 	TimerSetValue(&appTimer, LORAWAN_APP_TX_DUTYCYCLE);
@@ -257,48 +248,42 @@ static void lorawan_has_joined_handler(void)
 
    @param[in] app_data  Pointer to rx data
 */
-static void lorawan_rx_handler(lmh_app_data_t *app_data)
-{
-	Serial.printf("LoRa Packet received on port %d, size:%d, rssi:%d, snr:%d\n",
-				  app_data->port, app_data->buffsize, app_data->rssi, app_data->snr);
+static void lorawan_rx_handler(lmh_app_data_t *app_data) {
+	Serial.printf("LoRa Packet received on port %d, size:%d, rssi:%d, snr:%d\n", app_data->port, app_data->buffsize, app_data->rssi, app_data->snr);
 
-	switch (app_data->port)
-	{
-	case 3:
-		// Port 3 switches the class
-		if (app_data->buffsize == 1)
-		{
-			switch (app_data->buffer[0])
-			{
-			case 0:
-				lmh_class_request(CLASS_A);
-				break;
+	switch (app_data->port) {
+    case 3:
+      // Port 3 switches the class
+      if (app_data->buffsize == 1) {
+        switch (app_data->buffer[0]) {
+          case 0:
+            lmh_class_request(CLASS_A);
+            break;
 
-			case 1:
-				lmh_class_request(CLASS_B);
-				break;
+          case 1:
+            lmh_class_request(CLASS_B);
+            break;
 
-			case 2:
-				lmh_class_request(CLASS_C);
-				break;
+          case 2:
+            lmh_class_request(CLASS_C);
+            break;
 
-			default:
-				break;
-			}
-		}
-		break;
+          default:
+            break;
+        }
+      }
+      break;
 
-	case LORAWAN_APP_PORT:
-		// YOUR_JOB: Take action on received data
-		break;
+    case LORAWAN_APP_PORT:
+      // YOUR_JOB: Take action on received data
+      break;
 
-	default:
-		break;
+    default:
+      break;
 	}
 }
 
-static void lorawan_confirm_class_handler(DeviceClass_t Class)
-{
+static void lorawan_confirm_class_handler(DeviceClass_t Class) {
 	Serial.printf("switch to class %c done\n", "ABC"[Class]);
 
 	// Informs the server that switch has occurred ASAP
@@ -307,10 +292,8 @@ static void lorawan_confirm_class_handler(DeviceClass_t Class)
 	lmh_send(&m_lora_app_data, LMH_UNCONFIRMED_MSG);
 }
 
-static void send_lora_frame(void)
-{
-	if (lmh_join_status_get() != LMH_SET)
-	{
+static void send_lora_frame(void) {
+	if (lmh_join_status_get() != LMH_SET) {
 		//Not joined, try again later
 		Serial.println("Did not join network, skip sending frame");
 		return;
@@ -338,8 +321,7 @@ static void send_lora_frame(void)
 
 /**@brief Function for handling a LoRa tx timer timeout event.
 */
-static void tx_lora_periodic_handler(void)
-{
+static void tx_lora_periodic_handler(void) {
 	TimerSetValue(&appTimer, LORAWAN_APP_TX_DUTYCYCLE);
 	TimerStart(&appTimer);
 	Serial.println("Sending frame");
@@ -350,8 +332,7 @@ static void tx_lora_periodic_handler(void)
 
    @details Initializes the timer module. This creates and starts application timers.
 */
-static uint32_t timers_init(void)
-{
+static uint32_t timers_init(void) {
 	appTimer.timerNum = 3;
 	TimerInit(&appTimer, tx_lora_periodic_handler);
 	return 0;

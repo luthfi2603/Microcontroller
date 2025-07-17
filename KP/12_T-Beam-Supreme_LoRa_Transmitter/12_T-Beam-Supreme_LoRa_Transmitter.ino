@@ -89,7 +89,7 @@ void loop() {
     humidity = bme.readHumidity();
     pressure = bme.readPressure() / 100.0F;  // hPa
 
-    message = String("{\n  \"temp\": ") + temperature + ",\n  \"hum\": " + humidity + ",\n  \"press\": " + pressure + "\n}";
+    message = String("{\"id\":1,") + "\"temp\":" + temperature + ",\"hum\":" + humidity + ",\"press\":" + pressure + "}";
     // message = "Hello World";
 
     Serial.println("----------------\nTransmit:");

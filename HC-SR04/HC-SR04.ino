@@ -14,16 +14,16 @@
 #define BOOT_BUTTON_PIN 0
 
 // WiFi
-/* #define WIFI_SSID "Wokwi-GUEST"
-#define WIFI_PASSWORD "" */
+#define WIFI_SSID "Wokwi-GUEST"
+#define WIFI_PASSWORD ""
 /* #define WIFI_SSID "Redmi Note 13 Pro 5G"
 #define WIFI_PASSWORD "12121212" */
-#define WIFI_SSID "USUNETA-IOT-DLCBLT4"
-#define WIFI_PASSWORD "IoTDLCBLt4?"
+/* #define WIFI_SSID "USUNETA-IOT-DLCBLT4"
+#define WIFI_PASSWORD "IoTDLCBLt4?" */
 
 // MQTT Broker
-// #define MQTT_BROKER "202.0.107.154"
-#define MQTT_BROKER "thingsboard.aiot.my.id"
+#define MQTT_BROKER "202.0.107.154"
+// #define MQTT_BROKER "thingsboard.aiot.my.id"
 #define MQTT_CLIENT_ID "ngbwkezpf0jy8k5jql6l"
 #define MQTT_USERNAME "zsxetv8eaqrewlq5ztaj"
 #define MQTT_PASSWORD "b1kjtw5mabmba3sjmwgx"

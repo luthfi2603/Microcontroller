@@ -19,7 +19,7 @@
 #define LORA_RST 5
 #define LORA_DIO1 1
 
-#define INTERVAL 60000  // 60 detik
+#define INTERVAL 600000  // 10 menit
 
 // OLED display (SH1106G 128x64)
 Adafruit_SH1106G display = Adafruit_SH1106G(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire);
@@ -31,7 +31,7 @@ float temperature, humidity, pressure;
 String message;
 
 void setup() {
-  Serial.begin(115200);
+  // Serial.begin(115200);
   delay(1000);
 
   Wire.begin(OLED_SDA_PIN, OLED_SCL_PIN);
@@ -80,7 +80,7 @@ void setup() {
   pressure = bme.readPressure() / 100.0F;
 
   // Buat pesan
-  message = String("{\"id\":8,") + "\"temp\":" + temperature + ",\"hum\":" + humidity + ",\"press\":" + pressure + "}";
+  message = String("{\"id\":1,") + "\"temp\":" + temperature + ",\"hum\":" + humidity + ",\"press\":" + pressure + "}";
 
   // Serial.println("----------------\nTransmit:");
   // Serial.println(message);

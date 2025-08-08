@@ -107,13 +107,13 @@ void setup() {
   }
 
   delay(3000);  // Biar sempat ditampilkan
-  // Serial.println("Entering deep sleep for 60 seconds...");
+  // Serial.println("Entering deep sleep for 10 minutes...");
 
-  // Set timer untuk bangun setelah 60 detik
+  // Set timer
   esp_sleep_enable_timer_wakeup(INTERVAL * 1000ULL);  // dalam mikrodetik
   display.clearDisplay();
   display.setCursor(0, 0);
-  display.print("Sleep for 60s...");
+  display.print("Sleep for 10 min...");
   display.display();
 
   delay(5000);  // Agar ada delay untuk tampilkan OLED dan upload program baru

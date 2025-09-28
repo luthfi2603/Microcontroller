@@ -1,0 +1,4 @@
+[wokwi]
+version = 1
+board = 'nucleo-c031c6'
+firmware = '../STM32C031C6T6/Debug/STM32C031C6T6.elf'

@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "author": "Anonymous maker",
+  "editor": "wokwi",
+  "parts": [
+    { "type": "board-st-nucleo-c031c6", "id": "nucleo", "top": 0, "left": 0, "attrs": {} },
+    { "type": "wokwi-led", "id": "led1", "top": 111.6, "left": 263, "attrs": { "color": "red" } },
+    {
+      "type": "wokwi-pushbutton",
+      "id": "btn1",
+      "top": 179,
+      "left": 288,
+      "attrs": { "color": "green", "xray": "1" }
+    }
+  ],
+  "connections": [
+    [ "$serialMonitor:TX", "nucleo:PA3", "", [] ],
+    [ "$serialMonitor:RX", "nucleo:PA2", "", [] ],
+    [ "nucleo:GND.8", "led1:C", "black", [ "h0" ] ],
+    [ "nucleo:PA5", "led1:A", "green", [ "h0" ] ],
+    [ "nucleo:GND.8", "btn1:1.l", "black", [ "h34.77", "v29.63" ] ],
+    [ "nucleo:PA6", "btn1:2.l", "green", [ "h25.17", "v29.43" ] ]
+  ],
+  "dependencies": {}
+}

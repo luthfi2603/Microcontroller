@@ -21,7 +21,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include <string.h>
+#include <stdio.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -33,6 +34,7 @@
 /* USER CODE BEGIN PD */
 #define LED_PORT GPIOA
 #define LED_PIN GPIO_PIN_5
+#define BUTTON_PIN GPIO_PIN_6
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -92,15 +94,20 @@ int main(void)
   MX_GPIO_Init();
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
-
+  uint32_t increment = 1;
+  uint8_t message[] = "Halo dari STM32!";
+  uint8_t messageBuffer[50];
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1) {
     HAL_GPIO_TogglePin(LED_PORT, LED_PIN);
-    printf("Hello, %s!\n", "STM32");
-    HAL_Delay(1000);
+    // printf("Hello, %s!\n", "STM32");
+    snprintf((char*)messageBuffer, sizeof(messageBuffer), "%s %lu\r\n", message, increment);
+    increment++;
+    HAL_UART_Transmit(&huart2, messageBuffer, strlen((char*)messageBuffer), HAL_MAX_DELAY);
+    HAL_Delay(500);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -209,9 +216,13 @@ static void MX_GPIO_Init(void)
 
   /*Configure GPIO pin : PA6 */
   GPIO_InitStruct.Pin = GPIO_PIN_6;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI4_15_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI4_15_IRQn);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
@@ -219,7 +230,14 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-
+uint8_t debug[] = "Ini adalah interupsi";
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
+  // Cek pin mana yang memicu interupsi
+  if (GPIO_Pin == BUTTON_PIN) {
+    HAL_GPIO_TogglePin(LED_PORT, LED_PIN);
+    HAL_UART_Transmit(&huart2, debug, strlen((char*)debug), HAL_MAX_DELAY);
+  }
+}
 /* USER CODE END 4 */
 
 /**

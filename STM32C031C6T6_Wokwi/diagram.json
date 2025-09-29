@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "author": "Anonymous maker",
+  "author": "Muhammad Luthfi",
   "editor": "wokwi",
   "parts": [
     { "type": "board-st-nucleo-c031c6", "id": "nucleo", "top": 0, "left": 0, "attrs": {} },
@@ -11,6 +11,13 @@
       "top": 179,
       "left": 288,
       "attrs": { "color": "green", "xray": "1" }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led2",
+      "top": 111.6,
+      "left": 349.4,
+      "attrs": { "color": "yellow" }
     }
   ],
   "connections": [
@@ -19,7 +26,9 @@
     [ "nucleo:GND.8", "led1:C", "black", [ "h0" ] ],
     [ "nucleo:PA5", "led1:A", "green", [ "h0" ] ],
     [ "nucleo:GND.8", "btn1:1.l", "black", [ "h34.77", "v29.63" ] ],
-    [ "nucleo:PA6", "btn1:2.l", "green", [ "h25.17", "v29.43" ] ]
+    [ "nucleo:PA6", "btn1:2.l", "green", [ "h25.17", "v29.43" ] ],
+    [ "nucleo:PA7", "led2:A", "green", [ "h15.57", "v48.83", "h124.8" ] ],
+    [ "nucleo:GND.8", "led2:C", "black", [ "h34.77", "v10.43", "h86" ] ]
   ],
   "dependencies": {}
 }

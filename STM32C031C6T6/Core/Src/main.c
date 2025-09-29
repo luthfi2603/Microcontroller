@@ -33,8 +33,11 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define LED_PORT GPIOA
-#define LED_PIN GPIO_PIN_5
+#define LED_PIN GPIO_PIN_7
+#define LED_PIN_2 GPIO_PIN_5
 #define BUTTON_PIN GPIO_PIN_6
+#define DEBOUNCE_DELAY 50 // 50 ms
+#define INTERVAL 500 // 500 ms
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -47,7 +50,8 @@
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
-
+volatile uint8_t buttonState = 0;
+volatile uint32_t lastInterruptTime = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -94,20 +98,41 @@ int main(void)
   MX_GPIO_Init();
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
-  uint32_t increment = 1;
-  uint8_t message[] = "Halo dari STM32!";
-  uint8_t messageBuffer[50];
+  uint32_t increment = 1, previousMillis = 0, currentMillis, buttonPressTime = 0;
+  uint8_t message[] = "Halo dari STM32!", messageBuffer[50], debug[] = "Ini adalah interupsi\r\n", debouncingState = 0;
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1) {
-    HAL_GPIO_TogglePin(LED_PORT, LED_PIN);
-    // printf("Hello, %s!\n", "STM32");
-    snprintf((char*)messageBuffer, sizeof(messageBuffer), "%s %lu\r\n", message, increment);
-    increment++;
-    HAL_UART_Transmit(&huart2, messageBuffer, strlen((char*)messageBuffer), HAL_MAX_DELAY);
-    HAL_Delay(500);
+    currentMillis = HAL_GetTick();
+    if (currentMillis - previousMillis >= INTERVAL) {
+      previousMillis = currentMillis;
+
+      HAL_GPIO_TogglePin(LED_PORT, LED_PIN);
+      // printf("Hello, %s!\n", "STM32");
+      snprintf((char*)messageBuffer, sizeof(messageBuffer), "%s %lu\r\n", message, increment);
+      increment++;
+      HAL_UART_Transmit(&huart2, messageBuffer, strlen((char*)messageBuffer), HAL_MAX_DELAY);
+    }
+
+    // Cek apakah tombol ditekan
+    if (buttonState) {
+      buttonState = 0; // Reset state tombol
+      debouncingState = 1; // Masuk ke mode debounce
+      buttonPressTime = HAL_GetTick(); // Catat waktu mulai debounce
+    }
+
+    if (debouncingState && (currentMillis - buttonPressTime > DEBOUNCE_DELAY)) {
+      debouncingState = 0; // Keluar dari mode debounce
+
+      // Verifikasi pin setelah debounce selesai
+      if (HAL_GPIO_ReadPin(GPIOA, BUTTON_PIN) == GPIO_PIN_RESET) {
+        // Aksi utama tombol
+        HAL_GPIO_TogglePin(LED_PORT, LED_PIN_2);
+        HAL_UART_Transmit(&huart2, debug, strlen((char*)debug), HAL_MAX_DELAY);
+      }
+    }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -205,10 +230,10 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOA_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5|GPIO_PIN_7, GPIO_PIN_RESET);
 
-  /*Configure GPIO pin : PA5 */
-  GPIO_InitStruct.Pin = GPIO_PIN_5;
+  /*Configure GPIO pins : PA5 PA7 */
+  GPIO_InitStruct.Pin = GPIO_PIN_5|GPIO_PIN_7;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
@@ -230,12 +255,14 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-uint8_t debug[] = "Ini adalah interupsi";
-void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
+void HAL_GPIO_EXTI_Falling_Callback(uint16_t GPIO_Pin) {
   // Cek pin mana yang memicu interupsi
   if (GPIO_Pin == BUTTON_PIN) {
-    HAL_GPIO_TogglePin(LED_PORT, LED_PIN);
-    HAL_UART_Transmit(&huart2, debug, strlen((char*)debug), HAL_MAX_DELAY);
+    // Cek apakah sudah cukup waktu sejak interupsi terakhir (debounce awal)
+    if (HAL_GetTick() - lastInterruptTime > DEBOUNCE_DELAY) {
+      buttonState = 1; // Ubah state tombol
+      lastInterruptTime = HAL_GetTick(); // Catat waktu interupsi
+    }
   }
 }
 /* USER CODE END 4 */

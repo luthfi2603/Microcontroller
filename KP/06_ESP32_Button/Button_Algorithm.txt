@@ -1,0 +1,15 @@
+Button Algorithm
+
+R : reading
+LDT : lastDebounceTime
+BS : buttonState
+LBS : lastButtonState
+
+            T0  T1  T2  T3  T4  T5  T6  T7
+R           1   0   0   0   0   1   1   1
+millis()    0   60  120 180 240 300 360 420
+LDT         0   60  60  60  60  300 300 300
+BS          1   1   0   0   0   0   1   1
+LBS         1   0   0   0   0   1   1   1
+                    |               |
+                Lampu Hidup     Lampu Mati

@@ -35,9 +35,11 @@
 #define LED_PORT GPIOA
 #define LED_PIN GPIO_PIN_7
 #define LED_PIN_2 GPIO_PIN_5
+#define LED_PIN_3 GPIO_PIN_14
 #define BUTTON_PIN GPIO_PIN_6
 #define DEBOUNCE_DELAY 50 // 50 ms
 #define INTERVAL 500 // 500 ms
+#define INTERVAL_ADC 1000 // 1s
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -46,6 +48,7 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+ADC_HandleTypeDef hadc1;
 
 UART_HandleTypeDef huart2;
 
@@ -58,6 +61,7 @@ volatile uint32_t lastInterruptTime = 0;
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
+static void MX_ADC1_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -97,9 +101,12 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_USART2_UART_Init();
+  MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
-  uint32_t increment = 1, previousMillis = 0, currentMillis, buttonPressTime = 0;
-  uint8_t message[] = "Halo dari STM32!", messageBuffer[50], debug[] = "Ini adalah interupsi\r\n", debouncingState = 0;
+  uint32_t increment = 1, previousMillis = 0, previousAdcMillis = 0, currentMillis, buttonPressTime = 0;
+  uint16_t adcValue;
+  float voltage;
+  uint8_t message[] = "Halo dari STM32!", messageBuffer[128], debug[] = "***\r\nIni adalah interupsi\r\n***\r\n", debouncingState = 0;
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -136,6 +143,25 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    if (currentMillis - previousAdcMillis >= INTERVAL_ADC) {
+      previousAdcMillis = currentMillis;
+
+      HAL_ADC_Start(&hadc1);
+      HAL_ADC_PollForConversion(&hadc1, 100);
+      adcValue = HAL_ADC_GetValue(&hadc1);
+      HAL_ADC_Stop(&hadc1);
+      // Referensi tegangan biasanya 3.3V dan resolusi 12-bit (2^12 - 1 = 4095)
+      voltage = (float)adcValue / 4095.0f * 3.3f * 100.0f;
+
+      if (adcValue > 3000) { // Kalau gelap
+        HAL_GPIO_WritePin(LED_PORT, LED_PIN_3, GPIO_PIN_SET);
+      } else { // Kalau terang
+        HAL_GPIO_WritePin(LED_PORT, LED_PIN_3, GPIO_PIN_RESET);
+      }
+
+      snprintf((char*)messageBuffer, sizeof(messageBuffer), "---\r\nNilai digital : %u\r\nTegangan : %u\r\n---\r\n", adcValue, (uint16_t)voltage);
+      HAL_UART_Transmit(&huart2, messageBuffer, strlen((char*)messageBuffer), HAL_MAX_DELAY);
+    }
   }
   /* USER CODE END 3 */
 }
@@ -176,6 +202,63 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+}
+
+/**
+  * @brief ADC1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_ADC1_Init(void)
+{
+
+  /* USER CODE BEGIN ADC1_Init 0 */
+
+  /* USER CODE END ADC1_Init 0 */
+
+  ADC_ChannelConfTypeDef sConfig = {0};
+
+  /* USER CODE BEGIN ADC1_Init 1 */
+
+  /* USER CODE END ADC1_Init 1 */
+
+  /** Configure the global features of the ADC (Clock, Resolution, Data Alignment and number of conversion)
+  */
+  hadc1.Instance = ADC1;
+  hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV4;
+  hadc1.Init.Resolution = ADC_RESOLUTION_12B;
+  hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
+  hadc1.Init.ScanConvMode = ADC_SCAN_SEQ_FIXED;
+  hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
+  hadc1.Init.LowPowerAutoWait = DISABLE;
+  hadc1.Init.LowPowerAutoPowerOff = DISABLE;
+  hadc1.Init.ContinuousConvMode = DISABLE;
+  hadc1.Init.NbrOfConversion = 1;
+  hadc1.Init.DiscontinuousConvMode = DISABLE;
+  hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
+  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
+  hadc1.Init.DMAContinuousRequests = DISABLE;
+  hadc1.Init.Overrun = ADC_OVR_DATA_PRESERVED;
+  hadc1.Init.SamplingTimeCommon1 = ADC_SAMPLETIME_1CYCLE_5;
+  hadc1.Init.OversamplingMode = DISABLE;
+  hadc1.Init.TriggerFrequencyMode = ADC_TRIGGER_FREQ_HIGH;
+  if (HAL_ADC_Init(&hadc1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Regular Channel
+  */
+  sConfig.Channel = ADC_CHANNEL_4;
+  sConfig.Rank = ADC_RANK_CHANNEL_NUMBER;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN ADC1_Init 2 */
+
+  /* USER CODE END ADC1_Init 2 */
+
 }
 
 /**
@@ -230,10 +313,10 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOA_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5|GPIO_PIN_7, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5|GPIO_PIN_7|GPIO_PIN_14, GPIO_PIN_RESET);
 
-  /*Configure GPIO pins : PA5 PA7 */
-  GPIO_InitStruct.Pin = GPIO_PIN_5|GPIO_PIN_7;
+  /*Configure GPIO pins : PA5 PA7 PA14 */
+  GPIO_InitStruct.Pin = GPIO_PIN_5|GPIO_PIN_7|GPIO_PIN_14;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;

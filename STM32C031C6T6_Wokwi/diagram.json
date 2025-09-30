@@ -18,6 +18,20 @@
       "top": 111.6,
       "left": 349.4,
       "attrs": { "color": "yellow" }
+    },
+    {
+      "type": "wokwi-photoresistor-sensor",
+      "id": "ldr1",
+      "top": 185.6,
+      "left": -191.2,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led3",
+      "top": 102,
+      "left": -44.2,
+      "attrs": { "color": "white" }
     }
   ],
   "connections": [
@@ -28,7 +42,12 @@
     [ "nucleo:GND.8", "btn1:1.l", "black", [ "h34.77", "v29.63" ] ],
     [ "nucleo:PA6", "btn1:2.l", "green", [ "h25.17", "v29.43" ] ],
     [ "nucleo:PA7", "led2:A", "green", [ "h15.57", "v48.83", "h124.8" ] ],
-    [ "nucleo:GND.8", "led2:C", "black", [ "h34.77", "v10.43", "h86" ] ]
+    [ "nucleo:GND.8", "led2:C", "black", [ "h34.77", "v10.43", "h86" ] ],
+    [ "nucleo:PA4", "ldr1:AO", "green", [ "h-29.78", "v-36.87" ] ],
+    [ "nucleo:3V3.2", "ldr1:VCC", "red", [ "h-48.53", "v10.43" ] ],
+    [ "nucleo:GND.6", "ldr1:GND", "black", [ "h-48.53", "v-8.37" ] ],
+    [ "nucleo:PA14", "led3:A", "green", [ "h0" ] ],
+    [ "nucleo:GND.2", "led3:C", "black", [ "h-0.98", "v10.43", "h-48.4" ] ]
   ],
   "dependencies": {}
 }

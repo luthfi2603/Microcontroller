@@ -32,6 +32,13 @@
       "top": 102,
       "left": -44.2,
       "attrs": { "color": "white" }
+    },
+    {
+      "type": "wokwi-ntc-temperature-sensor",
+      "id": "ntc1",
+      "top": 89,
+      "left": -211.8,
+      "attrs": {}
     }
   ],
   "connections": [
@@ -47,7 +54,10 @@
     [ "nucleo:3V3.2", "ldr1:VCC", "red", [ "h-48.53", "v10.43" ] ],
     [ "nucleo:GND.6", "ldr1:GND", "black", [ "h-48.53", "v-8.37" ] ],
     [ "nucleo:PA14", "led3:A", "green", [ "h0" ] ],
-    [ "nucleo:GND.2", "led3:C", "black", [ "h-0.98", "v10.43", "h-48.4" ] ]
+    [ "nucleo:GND.2", "led3:C", "black", [ "h-0.98", "v10.43", "h-48.4" ] ],
+    [ "nucleo:GND.2", "ntc1:GND", "black", [ "v10.43", "h-68.18", "v-48" ] ],
+    [ "nucleo:3V3.2", "ntc1:VCC", "red", [ "h-48.53", "v-8.77", "h-46.94", "v-57.6" ] ],
+    [ "nucleo:PA13", "ntc1:OUT", "green", [ "h-20.18", "v-8.77", "h-57.6", "v-38.3" ] ]
   ],
   "dependencies": {}
 }

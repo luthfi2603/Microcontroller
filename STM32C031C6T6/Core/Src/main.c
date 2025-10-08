@@ -23,6 +23,7 @@
 /* USER CODE BEGIN Includes */
 #include <string.h>
 #include <stdio.h>
+#include <math.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -40,6 +41,10 @@
 #define DEBOUNCE_DELAY 50 // 50 ms
 #define INTERVAL 500 // 500 ms
 #define INTERVAL_ADC 1000 // 1s
+#define R0 10000.0f
+#define T0 298.15f // 25 C dalam Kelvin
+#define BETA 3950.0f
+#define R_FIXED 10000.0f // Nilai resistor tetap
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -104,9 +109,9 @@ int main(void)
   MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
   uint32_t increment = 1, previousMillis = 0, previousAdcMillis = 0, currentMillis, buttonPressTime = 0;
-  uint16_t adcValue;
-  float voltage;
-  uint8_t message[] = "Halo dari STM32!", messageBuffer[128], debug[] = "***\r\nIni adalah interupsi\r\n***\r\n", debouncingState = 0;
+  uint16_t ldrAdcValue = 0, ntcAdcValue = 0;
+  float voltageLdr, voltageNtc, resistanceNtc, tempKelvin, tempCelsius;
+  uint8_t message[] = "Halo dari STM32!", messageBuffer[128], debug[] = "***\r\nIni adalah interupsi\r\n^^^\r\n", debouncingState = 0;
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -147,19 +152,27 @@ int main(void)
       previousAdcMillis = currentMillis;
 
       HAL_ADC_Start(&hadc1);
-      HAL_ADC_PollForConversion(&hadc1, 100);
-      adcValue = HAL_ADC_GetValue(&hadc1);
+      /* HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY);
+      ldrAdcValue = HAL_ADC_GetValue(&hadc1); */
+      HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY);
+      ntcAdcValue = HAL_ADC_GetValue(&hadc1);
       HAL_ADC_Stop(&hadc1);
       // Referensi tegangan biasanya 3.3V dan resolusi 12-bit (2^12 - 1 = 4095)
-      voltage = (float)adcValue / 4095.0f * 3.3f * 100.0f;
+      voltageLdr = (float)ldrAdcValue / 4095.0f * 3.3f * 100.0f;
 
-      if (adcValue > 3000) { // Kalau gelap
+      if (ldrAdcValue > 3000) { // Kalau gelap
         HAL_GPIO_WritePin(LED_PORT, LED_PIN_3, GPIO_PIN_SET);
       } else { // Kalau terang
         HAL_GPIO_WritePin(LED_PORT, LED_PIN_3, GPIO_PIN_RESET);
       }
 
-      snprintf((char*)messageBuffer, sizeof(messageBuffer), "---\r\nNilai digital : %u\r\nTegangan : %u\r\n---\r\n", adcValue, (uint16_t)voltage);
+      // Konversi data digital ke suhu
+      voltageNtc = (float)ntcAdcValue / 4095.0f * 3.3f;
+      resistanceNtc = R_FIXED * (voltageNtc / (3.3f - voltageNtc));
+      tempKelvin = 1.0f / ((1.0f / T0) + (1.0f / BETA) * log(resistanceNtc / R0));
+      tempCelsius = (tempKelvin - 273.15f) * 100.0f;
+
+      snprintf((char*)messageBuffer, sizeof(messageBuffer), "---\r\nNilai digital LDR : %u\r\nTegangan LDR : %u\r\nNilai digital NTC : %u\r\nTemperature : %de-2°C\r\n^^^\r\n", ldrAdcValue, (uint16_t)voltageLdr, ntcAdcValue, (int16_t)tempCelsius);
       HAL_UART_Transmit(&huart2, messageBuffer, strlen((char*)messageBuffer), HAL_MAX_DELAY);
     }
   }
@@ -249,7 +262,7 @@ static void MX_ADC1_Init(void)
 
   /** Configure Regular Channel
   */
-  sConfig.Channel = ADC_CHANNEL_4;
+  sConfig.Channel = ADC_CHANNEL_13;
   sConfig.Rank = ADC_RANK_CHANNEL_NUMBER;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {

@@ -152,11 +152,12 @@ int main(void)
       previousAdcMillis = currentMillis;
 
       HAL_ADC_Start(&hadc1);
-      /* HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY);
-      ldrAdcValue = HAL_ADC_GetValue(&hadc1); */
+      HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY);
+      ldrAdcValue = HAL_ADC_GetValue(&hadc1);
       HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY);
       ntcAdcValue = HAL_ADC_GetValue(&hadc1);
       HAL_ADC_Stop(&hadc1);
+
       // Referensi tegangan biasanya 3.3V dan resolusi 12-bit (2^12 - 1 = 4095)
       voltageLdr = (float)ldrAdcValue / 4095.0f * 3.3f * 100.0f;
 
@@ -172,7 +173,7 @@ int main(void)
       tempKelvin = 1.0f / ((1.0f / T0) + (1.0f / BETA) * log(resistanceNtc / R0));
       tempCelsius = (tempKelvin - 273.15f) * 100.0f;
 
-      snprintf((char*)messageBuffer, sizeof(messageBuffer), "---\r\nNilai digital LDR : %u\r\nTegangan LDR : %u\r\nNilai digital NTC : %u\r\nTemperature : %de-2°C\r\n^^^\r\n", ldrAdcValue, (uint16_t)voltageLdr, ntcAdcValue, (int16_t)tempCelsius);
+      snprintf((char*)messageBuffer, sizeof(messageBuffer), "---\r\nNilai digital LDR : %u\r\nTegangan LDR : %ue-2 V\r\nNilai digital NTC : %u\r\nTemperature : %de-2°C\r\n^^^\r\n", ldrAdcValue, (uint16_t)voltageLdr, ntcAdcValue, (int16_t)tempCelsius);
       HAL_UART_Transmit(&huart2, messageBuffer, strlen((char*)messageBuffer), HAL_MAX_DELAY);
     }
   }
@@ -252,7 +253,7 @@ static void MX_ADC1_Init(void)
   hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
   hadc1.Init.DMAContinuousRequests = DISABLE;
   hadc1.Init.Overrun = ADC_OVR_DATA_PRESERVED;
-  hadc1.Init.SamplingTimeCommon1 = ADC_SAMPLETIME_1CYCLE_5;
+  hadc1.Init.SamplingTimeCommon1 = ADC_SAMPLETIME_160CYCLES_5;
   hadc1.Init.OversamplingMode = DISABLE;
   hadc1.Init.TriggerFrequencyMode = ADC_TRIGGER_FREQ_HIGH;
   if (HAL_ADC_Init(&hadc1) != HAL_OK)
@@ -262,8 +263,16 @@ static void MX_ADC1_Init(void)
 
   /** Configure Regular Channel
   */
-  sConfig.Channel = ADC_CHANNEL_13;
+  sConfig.Channel = ADC_CHANNEL_4;
   sConfig.Rank = ADC_RANK_CHANNEL_NUMBER;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Regular Channel
+  */
+  sConfig.Channel = ADC_CHANNEL_13;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
     Error_Handler();

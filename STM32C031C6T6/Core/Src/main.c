@@ -45,6 +45,10 @@
 #define T0 298.15f // 25 C dalam Kelvin
 #define BETA 3950.0f
 #define R_FIXED 10000.0f // Nilai resistor tetap
+#define M_SLOPE -0.7f // Gradien garis log-log
+#define B_INTERCEPT 5.39897f // Intercept garis log-log (disesuaikan)
+// #define GAMMA 0.7f // Dari dokumentasi wokwi untuk pembacaan LDR
+// #define RL10 50.0f
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -110,8 +114,8 @@ int main(void)
   /* USER CODE BEGIN 2 */
   uint32_t increment = 1, previousMillis = 0, previousAdcMillis = 0, currentMillis, buttonPressTime = 0;
   uint16_t ldrAdcValue = 0, ntcAdcValue = 0;
-  float voltageLdr, voltageNtc, resistanceNtc, tempKelvin, tempCelsius;
-  uint8_t message[] = "Halo dari STM32!", messageBuffer[128], debug[] = "***\r\nIni adalah interupsi\r\n^^^\r\n", debouncingState = 0;
+  float voltageLdr, resistanceLdr, lux, voltageNtc, resistanceNtc, tempKelvin, tempCelsius;
+  uint8_t message[] = "Halo dari STM32!", messageBuffer[144], debug[] = "***\r\nIni adalah interupsi\r\n^^^\r\n", debouncingState = 0;
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -122,10 +126,6 @@ int main(void)
       previousMillis = currentMillis;
 
       HAL_GPIO_TogglePin(LED_PORT, LED_PIN);
-      // printf("Hello, %s!\n", "STM32");
-      snprintf((char*)messageBuffer, sizeof(messageBuffer), "%s %lu\r\n", message, increment);
-      increment++;
-      HAL_UART_Transmit(&huart2, messageBuffer, strlen((char*)messageBuffer), HAL_MAX_DELAY);
     }
 
     // Cek apakah tombol ditekan
@@ -151,6 +151,10 @@ int main(void)
     if (currentMillis - previousAdcMillis >= INTERVAL_ADC) {
       previousAdcMillis = currentMillis;
 
+      snprintf((char*)messageBuffer, sizeof(messageBuffer), "%s %lu\r\n", message, increment);
+      increment++;
+      HAL_UART_Transmit(&huart2, messageBuffer, strlen((char*)messageBuffer), HAL_MAX_DELAY);
+
       HAL_ADC_Start(&hadc1);
       HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY);
       ldrAdcValue = HAL_ADC_GetValue(&hadc1);
@@ -158,8 +162,17 @@ int main(void)
       ntcAdcValue = HAL_ADC_GetValue(&hadc1);
       HAL_ADC_Stop(&hadc1);
 
+      // Konfersi data digital ke lux
       // Referensi tegangan biasanya 3.3V dan resolusi 12-bit (2^12 - 1 = 4095)
-      voltageLdr = (float)ldrAdcValue / 4095.0f * 3.3f * 100.0f;
+      voltageLdr = (float)ldrAdcValue / 4095.0f * 3.3f;
+      // resistanceLdr = (R_FIXED * (3.3f - voltageLdr)) / voltageLdr; // Kalau sensor dekat dengan Vin
+      resistanceLdr = R_FIXED * (voltageLdr / (3.3f - voltageLdr)); // Kalau sensor dekat dengan GND
+      lux = powf(10.0f, (log10f(resistanceLdr) - B_INTERCEPT) / M_SLOPE);
+      // Cara dari wokwi
+      // resistanceLdr = 3030.3f * voltageLdr / (1.0f - voltageLdr / 3.3f); // Kalau 3.3 diubah jadi 5, maka 3030.3 diubah juga jadi 2000
+      // lux = powf(RL10 * 1e3 * powf(10.0f, GAMMA) / resistanceLdr, (1.0f / GAMMA));
+      voltageLdr = voltageLdr * 100.0f;
+      lux = lux * 100.0f;
 
       if (ldrAdcValue > 3000) { // Kalau gelap
         HAL_GPIO_WritePin(LED_PORT, LED_PIN_3, GPIO_PIN_SET);
@@ -170,10 +183,13 @@ int main(void)
       // Konversi data digital ke suhu
       voltageNtc = (float)ntcAdcValue / 4095.0f * 3.3f;
       resistanceNtc = R_FIXED * (voltageNtc / (3.3f - voltageNtc));
-      tempKelvin = 1.0f / ((1.0f / T0) + (1.0f / BETA) * log(resistanceNtc / R0));
-      tempCelsius = (tempKelvin - 273.15f) * 100.0f;
+      tempKelvin = 1.0f / ((1.0f / T0) + (1.0f / BETA) * logf(resistanceNtc / R0));
+      tempCelsius = (tempKelvin - 273.15f);
+      // Cara dari wokwi
+      // tempCelsius = 1.0f / (logf(1.0f / (4095.0f / ntcAdcValue - 1.0f)) / BETA + 1.0f / 298.15f) - 273.15f;
+      tempCelsius = tempCelsius * 100.0f;
 
-      snprintf((char*)messageBuffer, sizeof(messageBuffer), "---\r\nNilai digital LDR : %u\r\nTegangan LDR : %ue-2 V\r\nNilai digital NTC : %u\r\nTemperature : %de-2°C\r\n^^^\r\n", ldrAdcValue, (uint16_t)voltageLdr, ntcAdcValue, (int16_t)tempCelsius);
+      snprintf((char*)messageBuffer, sizeof(messageBuffer), "---\r\nNilai digital LDR : %u\r\nTegangan LDR : %ue-2 V\r\nLux : %lue-2 lx\r\nNilai digital NTC : %u\r\nTemperature : %de-2°C\r\n^^^\r\n", ldrAdcValue, (uint16_t)voltageLdr, (uint32_t)lux, ntcAdcValue, (int16_t)tempCelsius);
       HAL_UART_Transmit(&huart2, messageBuffer, strlen((char*)messageBuffer), HAL_MAX_DELAY);
     }
   }

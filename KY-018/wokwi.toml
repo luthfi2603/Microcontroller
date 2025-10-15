@@ -1,4 +1,3 @@
 [wokwi]
 version = 1
-firmware = './KY-018.ino.bin'
-elf = './KY-018.ino.elf'
+firmware = './KY-018.ino.elf'

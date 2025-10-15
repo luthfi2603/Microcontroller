@@ -229,9 +229,10 @@ void loop() {
       pollingTime = currentTime;
 
       analogValue = analogRead(LDR_PIN);
-      voltage = analogValue / 4095. * 3.3;
-      resistance = 2000 * voltage / (3.3 - voltage);
-      lux = pow(RL10 * 1e3 * pow(10, GAMMA) / resistance, (1 / GAMMA)) * 0.1;
+      voltage = (float)analogValue / 4095.0f * 3.3f;
+      // resistance = 2000 * voltage / (3.3 - voltage);
+      resistance = 3030.3f * voltage / (1.0f - voltage / 3.3f);
+      lux = pow(RL10 * 1e3 * pow(10, GAMMA) / resistance, (1 / GAMMA));
 
       if (!isfinite(lux)) {
         lux = 100000;

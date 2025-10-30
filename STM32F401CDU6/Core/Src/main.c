@@ -18,11 +18,14 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "usb_device.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "usbd_cdc_if.h"
 #include <stdio.h>
 #include <string.h>
+#include <math.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -33,7 +36,12 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define LED_PIN GPIO_PIN_13
+#define LED_PIN_2 GPIO_PIN_0
+#define LED_PIN_3 GPIO_PIN_1
 #define INTERVAL 1000
+#define R_FIXED 10000.0f
+#define M_SLOPE -0.7f
+#define B_INTERCEPT 5.39897f
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -45,10 +53,12 @@
 ADC_HandleTypeDef hadc1;
 DMA_HandleTypeDef hdma_adc1;
 
+TIM_HandleTypeDef htim4;
+
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
-volatile uint16_t adcValue[1];
+volatile uint16_t adcValue[2];
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -57,13 +67,25 @@ static void MX_GPIO_Init(void);
 static void MX_DMA_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_USART2_UART_Init(void);
+static void MX_TIM4_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+int _write(int file, char *ptr, int len) {
+  // uint32_t start = HAL_GetTick();
 
+  while (CDC_Transmit_FS((uint8_t*)ptr, len)/* ; */ == USBD_BUSY) {
+    HAL_Delay(1); // Tunggu sampai buffer kosong
+
+    // if (HAL_GetTick() - start >= 50)
+    //   break;
+  }
+
+  return len;
+}
 /* USER CODE END 0 */
 
 /**
@@ -98,24 +120,77 @@ int main(void)
   MX_DMA_Init();
   MX_ADC1_Init();
   MX_USART2_UART_Init();
+  MX_TIM4_Init();
+  MX_USB_DEVICE_Init();
   /* USER CODE BEGIN 2 */
-  HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adcValue, 1);
+  HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adcValue, 2);
+  HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_4);
 
-  uint32_t previousMillis = 0, currentMillis;
-  uint8_t messageBuffer[32];
+  int8_t direction = 1;
+  uint8_t /* messageBuffer[32], */state = 1, lastState = 0, led2State = 0;
+  uint16_t digitalDataPwm = 0;
+  uint32_t currentMillis, previousMillis = 0, prevMilLed2 = 0, prevMilLed3 = 0;
+  float voltageLdr, resistanceLdr, lux;
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1) {
     currentMillis = HAL_GetTick();
+
     if (currentMillis - previousMillis >= INTERVAL) {
       previousMillis = currentMillis;
 
       HAL_GPIO_TogglePin(GPIOC, LED_PIN);
 
-      snprintf((char*)messageBuffer, sizeof(messageBuffer), "Nilai digital Vrefint: %u\r\n", adcValue[0]);
-      HAL_UART_Transmit(&huart2, messageBuffer, strlen((char*)messageBuffer), HAL_MAX_DELAY);
+      // Konfersi data digital ke lux
+      voltageLdr = (float)adcValue[1] / 4095.0f * 3.3f;
+      resistanceLdr = R_FIXED * (voltageLdr / (3.3f - voltageLdr));
+      lux = powf(10.0f, (log10f(resistanceLdr) - B_INTERCEPT) / M_SLOPE);
+
+      // snprintf((char*)messageBuffer, sizeof(messageBuffer), "Nilai digital Vrefint: %u\r\n", adcValue[0]);
+      // HAL_UART_Transmit(&huart2, messageBuffer, strlen((char*)messageBuffer), HAL_MAX_DELAY);
+
+      printf("---\r\nNilai digital Vrefint: %u\r\n", adcValue[0]);
+      printf("Nilai digital LDR: %u\r\n", adcValue[1]);
+      printf("Nilai lux: %f\r\n^^^\r\n", lux);
+    }
+
+    if (currentMillis - prevMilLed2 >= 2000) { // Matikan
+      prevMilLed2 = currentMillis;
+
+      led2State = 1;
+      state = 0;
+
+      // __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_3, 750);
+      // TIM4->CCR4 = 65535;
+      HAL_GPIO_WritePin(GPIOB, LED_PIN_3, GPIO_PIN_SET);
+    }
+
+    if (currentMillis - prevMilLed2 >= 500 && led2State) { // Hidupkan
+      led2State = 0;
+      state = 1;
+
+      // __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_3, 250);
+      // TIM4->CCR4 = 16383;
+      HAL_GPIO_WritePin(GPIOB, LED_PIN_3, GPIO_PIN_RESET);
+    }
+
+    if (state != lastState) { // Loop pertama hidup
+      HAL_GPIO_TogglePin(GPIOB, LED_PIN_2);
+
+      lastState = state;
+    }
+
+    if (currentMillis - prevMilLed3 >= 8) {
+      prevMilLed3 = currentMillis;
+      TIM4->CCR4 = digitalDataPwm;
+      
+      digitalDataPwm += direction * 257;
+      
+      if (digitalDataPwm >= 65535 || digitalDataPwm <= 0) {
+        direction *= -1;
+      }
     }
     /* USER CODE END WHILE */
 
@@ -146,9 +221,9 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
   RCC_OscInitStruct.PLL.PLLM = 25;
-  RCC_OscInitStruct.PLL.PLLN = 168;
-  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
-  RCC_OscInitStruct.PLL.PLLQ = 4;
+  RCC_OscInitStruct.PLL.PLLN = 336;
+  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV4;
+  RCC_OscInitStruct.PLL.PLLQ = 7;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
     Error_Handler();
@@ -198,8 +273,8 @@ static void MX_ADC1_Init(void)
   hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
   hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
   hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
-  hadc1.Init.NbrOfConversion = 1;
-  hadc1.Init.DMAContinuousRequests = DISABLE;
+  hadc1.Init.NbrOfConversion = 2;
+  hadc1.Init.DMAContinuousRequests = ENABLE;
   hadc1.Init.EOCSelection = ADC_EOC_SEQ_CONV;
   if (HAL_ADC_Init(&hadc1) != HAL_OK)
   {
@@ -215,9 +290,77 @@ static void MX_ADC1_Init(void)
   {
     Error_Handler();
   }
+
+  /** Configure for the selected ADC regular channel its corresponding rank in the sequencer and its sample time.
+  */
+  sConfig.Channel = ADC_CHANNEL_0;
+  sConfig.Rank = 2;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
   /* USER CODE BEGIN ADC1_Init 2 */
 
   /* USER CODE END ADC1_Init 2 */
+
+}
+
+/**
+  * @brief TIM4 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM4_Init(void)
+{
+
+  /* USER CODE BEGIN TIM4_Init 0 */
+
+  /* USER CODE END TIM4_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
+
+  /* USER CODE BEGIN TIM4_Init 1 */
+
+  /* USER CODE END TIM4_Init 1 */
+  htim4.Instance = TIM4;
+  htim4.Init.Prescaler = 0;
+  htim4.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim4.Init.Period = 65535;
+  htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim4.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+  if (HAL_TIM_Base_Init(&htim4) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim4, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_Init(&htim4) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim4, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  if (HAL_TIM_PWM_ConfigChannel(&htim4, &sConfigOC, TIM_CHANNEL_4) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM4_Init 2 */
+
+  /* USER CODE END TIM4_Init 2 */
+  HAL_TIM_MspPostInit(&htim4);
 
 }
 
@@ -286,9 +429,13 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOH_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
+  __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0|GPIO_PIN_1, GPIO_PIN_RESET);
 
   /*Configure GPIO pin : PC13 */
   GPIO_InitStruct.Pin = GPIO_PIN_13;
@@ -296,6 +443,13 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : PB0 PB1 */
+  GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_1;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 

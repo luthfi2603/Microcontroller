@@ -1,4 +1,3 @@
 [wokwi]
 version = 1
 firmware = './Firebase.ino.bin'
-elf = './Firebase.ino.elf'

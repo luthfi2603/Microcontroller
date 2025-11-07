@@ -75,13 +75,13 @@ static void MX_TIM4_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 int _write(int file, char *ptr, int len) {
-  // uint32_t start = HAL_GetTick();
+  uint32_t start = HAL_GetTick();
 
   while (CDC_Transmit_FS((uint8_t*)ptr, len)/* ; */ == USBD_BUSY) {
     HAL_Delay(1); // Tunggu sampai buffer kosong
 
-    // if (HAL_GetTick() - start >= 50)
-    //   break;
+    if (HAL_GetTick() - start >= 50)
+      break;
   }
 
   return len;

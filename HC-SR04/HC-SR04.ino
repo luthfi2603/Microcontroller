@@ -20,6 +20,10 @@
 #define WIFI_PASSWORD "12121212" */
 /* #define WIFI_SSID "USUNETA-IOT-DLCBLT4"
 #define WIFI_PASSWORD "IoTDLCBLt4?" */
+/* #define WIFI_SSID "Oomilezatto"
+#define WIFI_PASSWORD "Maupesan" */
+/* #define WIFI_SSID "OPPO"
+#define WIFI_PASSWORD "192837465" */
 
 // MQTT Broker
 #define MQTT_BROKER "202.0.107.154"
@@ -234,9 +238,9 @@ void reconnect() {
     if (!reconnectState) {
       Serial.print("The client ");
       Serial.print(MQTT_CLIENT_ID);
-      Serial.println(" connecting to the public MQTT broker");
+      Serial.println(" connecting to the MQTT broker");
       if (client.connect(MQTT_CLIENT_ID, MQTT_USERNAME, MQTT_PASSWORD)) {
-        Serial.println("Public EMQX MQTT broker connected");
+        Serial.println("MQTT broker connected");
       } else {
         Serial.print("Failed with state ");
         Serial.print(client.state());
@@ -250,9 +254,9 @@ void reconnect() {
 
         Serial.print("The client ");
         Serial.print(MQTT_CLIENT_ID);
-        Serial.println(" connecting to the public MQTT broker");
+        Serial.println(" connecting to the MQTT broker");
         if (client.connect(MQTT_CLIENT_ID, MQTT_USERNAME, MQTT_PASSWORD)) {
-          Serial.println("Public EMQX MQTT broker connected");
+          Serial.println("MQTT broker connected");
         } else {
           Serial.print("Failed with state ");
           Serial.print(client.state());
@@ -342,15 +346,18 @@ void playWailingTone() {
 void setup() {
   // Set software serial baud to 115200;
   Serial.begin(115200);
+  delay(1000);
 
   pinMode(TRIG_PIN, OUTPUT); // Sets the TRIG_PIN as an Output
   pinMode(ECHO_PIN, INPUT); // Sets the ECHO_PIN as an Input
   pinMode(LED_PIN, OUTPUT);
   pinMode(LED_PIN_ESP, OUTPUT);
   pinMode(BOOT_BUTTON_PIN, INPUT_PULLUP);
-  /* tombol bawakan esp32, INPUT_PULLUP 
-  agar memastikan tombol bisa HIGH dan LOW dengan menghubungkannya ke VCC, dan ketika ditekan
-  tombol akan dihubungkan ke GND sehingga dia jadi LOW */
+  /**
+   * Tombol bawakan esp32, INPUT_PULLUP 
+   * agar memastikan tombol bisa HIGH dan LOW dengan menghubungkannya ke VCC, dan ketika ditekan
+   * tombol akan dihubungkan ke GND sehingga dia jadi LOW
+   */
   
   database.begin("esp32db", false);
 
@@ -416,9 +423,9 @@ void setup() {
     if (reconnectState) {
       Serial.print("The client ");
       Serial.print(MQTT_CLIENT_ID);
-      Serial.println(" connecting to the public MQTT broker");
+      Serial.println(" connecting to the MQTT broker");
       if (client.connect(MQTT_CLIENT_ID, MQTT_USERNAME, MQTT_PASSWORD)) {
-        Serial.println("Public EMQX MQTT broker connected");
+        Serial.println("MQTT broker connected");
       } else {
         Serial.print("Failed with state ");
         Serial.print(client.state());
@@ -432,9 +439,9 @@ void setup() {
 
         Serial.print("The client ");
         Serial.print(MQTT_CLIENT_ID);
-        Serial.println(" connecting to the public MQTT broker");
+        Serial.println(" connecting to the MQTT broker");
         if (client.connect(MQTT_CLIENT_ID, MQTT_USERNAME, MQTT_PASSWORD)) {
-          Serial.println("Public EMQX MQTT broker connected");
+          Serial.println("MQTT broker connected");
         } else {
           Serial.print("Failed with state ");
           Serial.print(client.state());

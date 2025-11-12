@@ -22,6 +22,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "ssd1306.h"
+#include "ssd1306_fonts.h"
 #include "usbd_cdc_if.h"
 #include <stdio.h>
 #include <string.h>
@@ -53,6 +55,8 @@
 ADC_HandleTypeDef hadc1;
 DMA_HandleTypeDef hdma_adc1;
 
+I2C_HandleTypeDef hi2c1;
+
 TIM_HandleTypeDef htim4;
 
 UART_HandleTypeDef huart2;
@@ -68,6 +72,7 @@ static void MX_DMA_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_TIM4_Init(void);
+static void MX_I2C1_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -122,15 +127,20 @@ int main(void)
   MX_USART2_UART_Init();
   MX_TIM4_Init();
   MX_USB_DEVICE_Init();
+  MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
+  ssd1306_Init();
   HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adcValue, 2);
   HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_4);
 
   int8_t direction = 1;
-  uint8_t /* messageBuffer[32], */state = 1, lastState = 0, led2State = 0;
+  uint8_t /* messageBuffer[32],  */state = 1, lastState = 0, led2State = 0;
   uint16_t digitalDataPwm = 0;
   uint32_t currentMillis, previousMillis = 0, prevMilLed2 = 0, prevMilLed3 = 0;
   float voltageLdr, resistanceLdr, lux;
+  char msg1th[24];
+  char msg2th[24];
+  char msg3th[24];
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -154,6 +164,23 @@ int main(void)
       printf("---\r\nNilai digital Vrefint: %u\r\n", adcValue[0]);
       printf("Nilai digital LDR: %u\r\n", adcValue[1]);
       printf("Nilai lux: %f\r\n^^^\r\n", lux);
+
+      snprintf(msg1th, sizeof(msg1th), "  \"vrefint\": %u,", adcValue[0]);
+      snprintf(msg2th, sizeof(msg2th), "  \"ldr\": %u,", adcValue[1]);
+      snprintf(msg3th, sizeof(msg3th), "  \"lux\": %.2f", lux);
+
+      ssd1306_Fill(Black);
+      ssd1306_SetCursor(0, 0);
+      ssd1306_WriteString("{", Font_7x10, White);
+      ssd1306_SetCursor(0, 10);
+      ssd1306_WriteString(msg1th, Font_7x10, White);
+      ssd1306_SetCursor(0, 20);
+      ssd1306_WriteString(msg2th, Font_7x10, White);
+      ssd1306_SetCursor(0, 30);
+      ssd1306_WriteString(msg3th, Font_7x10, White);
+      ssd1306_SetCursor(0, 40);
+      ssd1306_WriteString("}", Font_7x10, White);
+      ssd1306_UpdateScreen();
     }
 
     if (currentMillis - prevMilLed2 >= 2000) { // Matikan
@@ -302,6 +329,40 @@ static void MX_ADC1_Init(void)
   /* USER CODE BEGIN ADC1_Init 2 */
 
   /* USER CODE END ADC1_Init 2 */
+
+}
+
+/**
+  * @brief I2C1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_I2C1_Init(void)
+{
+
+  /* USER CODE BEGIN I2C1_Init 0 */
+
+  /* USER CODE END I2C1_Init 0 */
+
+  /* USER CODE BEGIN I2C1_Init 1 */
+
+  /* USER CODE END I2C1_Init 1 */
+  hi2c1.Instance = I2C1;
+  hi2c1.Init.ClockSpeed = 400000;
+  hi2c1.Init.DutyCycle = I2C_DUTYCYCLE_2;
+  hi2c1.Init.OwnAddress1 = 0;
+  hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+  hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+  hi2c1.Init.OwnAddress2 = 0;
+  hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+  hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+  if (HAL_I2C_Init(&hi2c1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN I2C1_Init 2 */
+
+  /* USER CODE END I2C1_Init 2 */
 
 }
 

@@ -50,3 +50,6 @@ release
 *.su
 *.idb
 *.pdb
+
+# Secrets file
+secrets.h

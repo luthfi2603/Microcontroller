@@ -1,0 +1,3 @@
+[wokwi]
+version = 1
+firmware = './WROOM-32E_Telegram_Bot_API.ino.bin'

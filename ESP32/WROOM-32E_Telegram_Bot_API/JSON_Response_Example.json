@@ -54,6 +54,9 @@
     }
   },
   {
+    "request": "https://api.telegram.org/botAPI_TOKEN/sendMessage?chat_id=-5173915349&text=Halo%20dari%20ESP32%21%0A%E3%83%95%E3%83%AA%E3%83%BC%E3%83%8A%E3%81%A1%E3%82%83%E3%82%93%E3%81%A8%E3%83%93%E3%83%93%E3%82%A2%E3%83%B3%E3%81%8F%E3%82%93"
+  },
+  {
     "ok": true,
     "result": {
       "message_id": 12,

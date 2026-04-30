@@ -1,0 +1,86 @@
+[
+  {
+    "ok": true,
+    "result": {
+      "message_id": 7,
+      "from": {
+        "id": 8634316321,
+        "is_bot": true,
+        "first_name": "Pendeteksi Tanah Longsor",
+        "username": "LandSlidEtectBot"
+      },
+      "chat": {
+        "id": -5173915349,
+        "title": "Ganyuwangi",
+        "type": "group",
+        "all_members_are_administrators": false,
+        "accepted_gift_types": {
+          "unlimited_gifts": false,
+          "limited_gifts": false,
+          "unique_gifts": false,
+          "premium_subscription": false,
+          "gifts_from_channels": false
+        }
+      },
+      "date": 1777254053,
+      "text": "Halo dari ESP32!"
+    }
+  },
+  {
+    "ok": true,
+    "result": {
+      "message_id": 9,
+      "from": {
+        "id": 8634316321,
+        "is_bot": true,
+        "first_name": "Pendeteksi Tanah Longsor",
+        "username": "LandSlidEtectBot"
+      },
+      "chat": {
+        "id": -5116194795,
+        "title": "Test",
+        "type": "group",
+        "all_members_are_administrators": false,
+        "accepted_gift_types": {
+          "unlimited_gifts": false,
+          "limited_gifts": false,
+          "unique_gifts": false,
+          "premium_subscription": false,
+          "gifts_from_channels": false
+        }
+      },
+      "date": 1777254314,
+      "text": "Halo dari ESP32!"
+    }
+  },
+  {
+    "request": "https://api.telegram.org/botAPI_TOKEN/sendMessage?chat_id=-5173915349&text=Halo%20dari%20ESP32%21%0A%E3%83%95%E3%83%AA%E3%83%BC%E3%83%8A%E3%81%A1%E3%82%83%E3%82%93%E3%81%A8%E3%83%93%E3%83%93%E3%82%A2%E3%83%B3%E3%81%8F%E3%82%93"
+  },
+  {
+    "ok": true,
+    "result": {
+      "message_id": 12,
+      "from": {
+        "id": 8634316321,
+        "is_bot": true,
+        "first_name": "Pendeteksi Tanah Longsor",
+        "username": "LandSlidEtectBot"
+      },
+      "chat": {
+        "id": -5173915349,
+        "title": "Ganyuwangi",
+        "type": "group",
+        "all_members_are_administrators": false,
+        "accepted_gift_types": {
+          "unlimited_gifts": false,
+          "limited_gifts": false,
+          "unique_gifts": false,
+          "premium_subscription": false,
+          "gifts_from_channels": false
+        }
+      },
+      "date": 1777284227,
+      "text": "Halo dari ESP32!\n\u30d5\u30ea\u30fc\u30ca\u3061\u3083\u3093\u3068\u30d3\u30d3\u30a2\u30f3\u304f\u3093"
+    }
+  }
+]

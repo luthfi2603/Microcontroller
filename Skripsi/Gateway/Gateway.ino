@@ -1,3 +1,4 @@
+#include <ArduinoJson.h>
 #include <HTTPClient.h>
 #include <PubSubClient.h>
 #include <WiFi.h>
@@ -5,15 +6,14 @@
 #include "secrets.h"
 
 // Deklarasi variabel global
-constexpr const char* MQTT_TOPIC_TELE_PUB = "v1/devices/me/telemetry";
 constexpr const char* MQTT_TOPIC_GATEWAY_TELE_PUB = "v1/gateway/telemetry";
 WiFiClient wiFiClient;
 WiFiClientSecure secureWiFiClient;
 PubSubClient mqttClient(wiFiClient);
 
 // Prototipe fungsi
-String urlEncode(const String &str);
-void sendMessageToTelegram(const String &message);
+void urlEncode(const char *str, char *encodedStr, size_t maxLen);
+void sendMessageToTelegram(const char *message);
 void mqttReconnect();
 
 void setup() {
@@ -49,7 +49,7 @@ void setup() {
     }
   }
 
-  sendMessageToTelegram(urlEncode("Halo dari ESP32!\nフリーナちゃんとビビアンくん"));
+  sendMessageToTelegram("Halo dari ESP32!\nフリーナちゃんとビビアンくん");
 }
 
 void loop() {
@@ -69,43 +69,71 @@ void loop() {
   if (mqttClient.connected() && (currentTime - lastPublishTime >= 2000)) {
     lastPublishTime = currentTime;
 
-    const char *gatewayPayload = "{\"ax\":0.5}";
-    const char *payload = "{\"Node 1\":[{\"ax\":0.6}],\"Node 2\":[{\"ax\":0.7}]}";
+    JsonDocument json;
+
+    /* // Parsing JSON string
+    DeserializationError error = deserializeJson(json, loRaPayload);
+
+    if (error) {
+      Serial.print(F("Failed to parsing JSON LoRa"));
+      Serial.println(error.f_str());
+    }
+
+    float nilaiAx = json["ax"];
+    float nilaiAy = json["ay"];
+    const char* statusGempa = json["status_gempa"]; */
+
+    json["Gateway"][0]["ax"] = 0.5;
+    json["Node 1"][0]["ax"]  = 0.6;
+    json["Node 2"][0]["ax"]  = 0.7;
+
+    char payload[128];
+    serializeJson(json, payload);
+    
     Serial.println(F("----------------\r\nPublish:"));
-    Serial.println(gatewayPayload);
     Serial.println(payload);
-    mqttClient.publish(MQTT_TOPIC_TELE_PUB, gatewayPayload);
     mqttClient.publish(MQTT_TOPIC_GATEWAY_TELE_PUB, payload);
   }
 }
 
-String urlEncode(const String &str) {
-  String encodedString = "";
+void urlEncode(const char *str, char *encodedStr, size_t maxLen) {
+  size_t encodedIdx = 0;
 
-  for (int i = 0; i < str.length(); i++) {
-    uint8_t c = str.charAt(i);
+  for (size_t i = 0; i < strlen(str); i++) {
+    // Cegah buffer overflow dengan pastikan wadah masih muat untuk 3 karakter ("%XX") + 1 karakter penutup ('\0')
+    if (encodedIdx + 3 >= maxLen - 1) {
+      Serial.println(F("Buffer overflow, string cut"));
+      break; 
+    }
+
+    uint8_t c = (uint8_t)str[i];
 
     // Menurut RFC 3986, huruf, angka, dan 4 simbol ini tidak boleh di-encode
     if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') {
-      encodedString += (char)c;
+      encodedStr[encodedIdx++] = c;
     } else { // Sisanya (termasuk spasi dan simbol unik), ubah ke format %HEX
-      char hex[4];
-      sprintf(hex, "%%%02X", c);
-      encodedString += hex;
+      snprintf(&encodedStr[encodedIdx], 4, "%%%02X", c);
+      encodedIdx += 3;
     }
   }
 
-  return encodedString;
+  // Null Terminator
+  encodedStr[encodedIdx] = '\0';
 }
 
-void sendMessageToTelegram(const String &message) {
-  HTTPClient http;
+void sendMessageToTelegram(const char *message) {
+  char encodedMsg[256];
+  urlEncode(message, encodedMsg, sizeof(encodedMsg));
 
-  String apiUrl = String("https://api.telegram.org/bot") + TELEGRAM_BOT_API_TOKEN + "/sendMessage?chat_id=" + CHAT_ID + "&text=" + message;
+  char apiUrl[512];
+  snprintf(apiUrl, sizeof(apiUrl),
+           "https://api.telegram.org/bot%s/sendMessage?chat_id=%s&text=%s",
+           TELEGRAM_BOT_API_TOKEN, CHAT_ID, encodedMsg);
   
   Serial.println(F("----------------\r\nTrying request to: "));
   Serial.println(apiUrl);
 
+  HTTPClient http;
   http.begin(secureWiFiClient, apiUrl);
 
   int16_t httpResponseCode = http.GET();
@@ -113,9 +141,11 @@ void sendMessageToTelegram(const String &message) {
   if (httpResponseCode > 0) {
     Serial.print(F("HTTP Response Code: "));
     Serial.println(httpResponseCode);
-    
+
+    // (Catatan: http.getString() masih menggunakan String, tapi tidak apa-apa untuk 
+    // respons sekali lewat. Jika ingin 100% C-String, bisa pakai http.getStream())
     String payload = http.getString();
-    Serial.println(F("Server Response:"));
+    Serial.println(F("Server Response: "));
     Serial.println(payload);
   } else {
     Serial.print(F("Error Code: "));

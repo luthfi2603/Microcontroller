@@ -1,8 +1,8 @@
 #include <RadioLib.h>
 
-#define LORA_CS 5
-#define LORA_IRQ 2
-#define LORA_RST 14
+constexpr const uint8_t LORA_CS = 5;
+constexpr const uint8_t LORA_IRQ = 2;
+constexpr const uint8_t LORA_RST = 14;
 
 Module loRaModule(LORA_CS, LORA_IRQ, LORA_RST);
 SX1276 loRa(&loRaModule);

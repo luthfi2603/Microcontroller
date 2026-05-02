@@ -1,10 +1,8 @@
 #include <RadioLib.h>
 
-#define LORA_CS 5
-#define LORA_IRQ 2
-#define LORA_RST 14
-
-#define INTERVAL 1000
+constexpr const uint8_t LORA_CS = 5;
+constexpr const uint8_t LORA_IRQ = 2;
+constexpr const uint8_t LORA_RST = 14;
 
 // Zero-Heap Allocation
 Module loRaModule(LORA_CS, LORA_IRQ, LORA_RST);
@@ -39,7 +37,7 @@ String message;
 void loop() {
   currentMillis = millis();
 
-  if (currentMillis - previousMillis >= INTERVAL) {
+  if (currentMillis - previousMillis >= 1000) {
     previousMillis = currentMillis;
 
     message = "Hello World!";

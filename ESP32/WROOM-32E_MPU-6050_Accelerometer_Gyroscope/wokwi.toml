@@ -1,0 +1,3 @@
+[wokwi]
+version = 1
+firmware = './WROOM-32E_MPU-6050_Accelerometer_Gyroscope.ino.bin'

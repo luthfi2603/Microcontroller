@@ -29,7 +29,7 @@ void setup() {
 
     delay(500);
   }
-  Serial.println(F("\r\nConnected to the Wi-Fi network"));
+  Serial.println(F("\r\nConnected to the Wi-Fi network!"));
 
   secureWiFiClient.setInsecure(); // Bypass verifikasi sertifikat SSL
 
@@ -39,11 +39,11 @@ void setup() {
   while (!mqttClient.connected()) {
     Serial.println(F("----------------\r\nConnecting to MQTT Broker..."));
     if (mqttClient.connect("LandSlidEtect_Gateway", GATEWAY_ACCESS_TOKEN, "")) {
-      Serial.println(F("Connected to MQTT Broker"));
+      Serial.println(F("Connected to MQTT Broker!"));
     } else {
       Serial.print(F("Failed with state "));
       Serial.print(mqttClient.state());
-      Serial.println(F(" try again in 5 seconds"));
+      Serial.println(F(" try again in 5 seconds!"));
 
       delay(5000);
     }
@@ -75,13 +75,14 @@ void loop() {
     DeserializationError error = deserializeJson(json, loRaPayload);
 
     if (error) {
-      Serial.print(F("Failed to parsing JSON LoRa"));
+      Serial.print(F("Failed to parsing JSON LoRa!, Error: "));
       Serial.println(error.f_str());
-    }
+    } else {
+      float nilaiAx = json["ax"];
+      float nilaiAy = json["ay"];
+      const char* statusGempa = json["status_gempa"];
+    } */
 
-    float nilaiAx = json["ax"];
-    float nilaiAy = json["ay"];
-    const char* statusGempa = json["status_gempa"]; */
 
     json["Gateway"][0]["ax"] = 0.5;
     json["Node 1"][0]["ax"]  = 0.6;
@@ -102,7 +103,7 @@ void urlEncode(const char *str, char *encodedStr, size_t maxLen) {
   for (size_t i = 0; i < strlen(str); i++) {
     // Cegah buffer overflow dengan pastikan wadah masih muat untuk 3 karakter ("%XX") + 1 karakter penutup ('\0')
     if (encodedIdx + 3 >= maxLen - 1) {
-      Serial.println(F("Buffer overflow, string cut"));
+      Serial.println(F("Buffer overflow, string cut!"));
       break; 
     }
 
@@ -158,10 +159,10 @@ void sendMessageToTelegram(const char *message) {
 void mqttReconnect() {
   Serial.println(F("----------------\r\nReconnecting to MQTT Broker..."));
   if (mqttClient.connect("LandSlidEtect_Gateway", GATEWAY_ACCESS_TOKEN, "")) {
-    Serial.println(F("Reonnected to MQTT Broker"));
+    Serial.println(F("Reonnected to MQTT Broker!"));
   } else {
     Serial.print(F("Failed with state "));
     Serial.print(mqttClient.state());
-    Serial.println(F(" try again in 5 seconds"));
+    Serial.println(F(" try again in 5 seconds!"));
   }
 }

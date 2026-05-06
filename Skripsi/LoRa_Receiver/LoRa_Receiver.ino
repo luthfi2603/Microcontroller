@@ -42,14 +42,14 @@ void setup() {
     if (state == RADIOLIB_ERR_NONE) {
       Serial.println(F("Success!\nWaiting for packets..."));
     } else {
-      Serial.print(F("Failed, code: "));
+      Serial.print(F("Failed!, code: "));
       Serial.print(state);
       while (true) { delay(10); }
     }
   } else {
-    Serial.print(F("LoRa init failed, code: "));
+    Serial.print(F("LoRa init failed!, code: "));
     Serial.print(state);
-    while (true) { delay(10); }
+    while (true) { delay(1000); }
   }
 }
 
@@ -66,7 +66,7 @@ void loop() {
     } else if (state == RADIOLIB_ERR_RX_TIMEOUT) {
       Serial.println(F("Timeout..."));
     } else {
-      Serial.print(F("Receive error, code: "));
+      Serial.print(F("Receive error!, code: "));
       Serial.println(state);
     }
   }

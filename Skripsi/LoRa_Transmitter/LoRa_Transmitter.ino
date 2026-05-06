@@ -1,8 +1,8 @@
 #include <RadioLib.h>
 
 constexpr const uint8_t LORA_CS = 5;
-constexpr const uint8_t LORA_IRQ = 2;
-constexpr const uint8_t LORA_RST = 14;
+constexpr const uint8_t LORA_IRQ = 4;
+constexpr const uint8_t LORA_RST = 15;
 
 // Zero-Heap Allocation
 Module loRaModule(LORA_CS, LORA_IRQ, LORA_RST);
@@ -25,9 +25,9 @@ void setup() {
 
     Serial.println(F("LoRa init success!"));
   } else {
-    Serial.print(F("LoRa init failed, code: "));
+    Serial.print(F("LoRa init failed!, code: "));
     Serial.println(state);
-    while (true) { delay(10); }
+    while (true) { delay(1000); }
   }
 }
 
@@ -49,7 +49,7 @@ void loop() {
     if (state == RADIOLIB_ERR_NONE) {
       Serial.println(F("Transmission success!"));
     } else {
-      Serial.print(F("Transmission failed, code: "));
+      Serial.print(F("Transmission failed!, code: "));
       Serial.println(state);
     }
   }

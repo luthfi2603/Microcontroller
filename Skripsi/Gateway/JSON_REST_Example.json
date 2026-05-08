@@ -82,5 +82,21 @@
       "date": 1777284227,
       "text": "Halo dari ESP32!\n\u30d5\u30ea\u30fc\u30ca\u3061\u3083\u3093\u3068\u30d3\u30d3\u30a2\u30f3\u304f\u3093"
     }
+  },
+  {
+    "vibration": {
+      "acc_dyn": 1,
+      "ratio_sta_lta": 1
+    },
+    "angle": {
+      "roll": 1,
+      "pitch": 1,
+      "yaw": 1
+    },
+    "angular_velocity": {
+      "gyro_x": 1,
+      "gyro_y": 1,
+      "gyro_z": 1
+    }
   }
 ]

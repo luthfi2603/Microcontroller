@@ -12,7 +12,7 @@ constexpr const uint16_t LTA_WINDOW = 2000; // 20 detik (2000 sampel)
 
 float accErrorX, accErrorY, gyroErrorX, gyroErrorY, gyroErrorZ;
 bool mpuConnectionState, lastMpuConnectionState = true;
-uint32_t gyroCurrentTime;
+uint32_t currentGyroTime;
 
 void setup() {
   Serial.begin(115200);
@@ -61,11 +61,11 @@ void setup() {
   // Call this function if you need to get the IMU error values for your module
   calculateIMUError();
   delay(20);
-  gyroCurrentTime = millis();
+  currentGyroTime = millis();
 }
 
 void loop() {
-  static uint32_t previousTime, pollingTime = 0, lastSampleTime = 0;
+  static uint32_t lastGyroTime, pollingTime = 0, lastSampleTime = 0;
   static float accAngleX = 0.0f, accAngleY = 0.0f;
   static float gyroX, gyroY, gyroZ;
   static float accDyn;
@@ -135,9 +135,9 @@ void loop() {
     }
 
     // === Read gyroscope data === //
-    previousTime = gyroCurrentTime;        // Previous time is stored before the actual time read
-    gyroCurrentTime = millis();            // Current time actual time read
-    float elapsedTime = (gyroCurrentTime - previousTime) * 0.001f; // Divide by 1000 to get seconds
+    lastGyroTime = currentGyroTime;        // Previous time is stored before the actual time read
+    currentGyroTime = millis();            // Current time actual time read
+    float elapsedTime = (currentGyroTime - lastGyroTime) * 0.001f; // Divide by 1000 to get seconds
     Wire.beginTransmission(MPU_PIN);
     Wire.write(0x43); // Gyro data first register address 0x43
     Wire.endTransmission(false);
@@ -279,13 +279,13 @@ void calculateIMUError() {
   // Print the error values on the Serial Monitor
   Serial.print(F("----------------\r\nAccErrorX: "));
   Serial.println(accErrorX);
-  Serial.print(F("accErrorY: "));
+  Serial.print(F("AccErrorY: "));
   Serial.println(accErrorY);
-  Serial.print(F("gyroErrorX: "));
+  Serial.print(F("GyroErrorX: "));
   Serial.println(gyroErrorX);
-  Serial.print(F("gyroErrorY: "));
+  Serial.print(F("GyroErrorY: "));
   Serial.println(gyroErrorY);
-  Serial.print(F("gyroErrorZ: "));
+  Serial.print(F("GyroErrorZ: "));
   Serial.println(gyroErrorZ);
   Serial.println(F("----------------"));
 }

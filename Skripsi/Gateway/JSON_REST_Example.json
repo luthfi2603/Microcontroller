@@ -98,5 +98,18 @@
       "gyro_y": 1,
       "gyro_z": 1
     }
+  },
+  {
+    "Gateway": [
+      {
+        "acc_dyn": 0,
+        "ratio_sta_lta": 0,
+        "roll": 0,
+        "pitch": 0,
+        "gyro_x": 0,
+        "gyro_y": 0,
+        "gyro_z": 0
+      }
+    ]
   }
 ]

@@ -1,7 +1,7 @@
 #include <RH_RF95.h>
 #include <RHReliableDatagram.h>
 
-constexpr const uint32_t INTERVAL = 5000;
+constexpr const uint16_t LORA_TX_INTERVAL = 5000;
 
 constexpr const uint8_t LORA_CS = 5;
 constexpr const uint8_t LORA_IRQ = 4;

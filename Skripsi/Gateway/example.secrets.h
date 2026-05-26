@@ -8,7 +8,7 @@ constexpr uint16_t MQTT_PORT = 1883;
 constexpr const char *GATEWAY_ACCESS_TOKEN = "ACCESS_TOKEN";
 
 // Telegram Bot API Token
-constexpr const char *TELEGRAM_BOT_API_TOKEN = "Your_API_Token";
+constexpr const char *TELEGRAM_BOT_API_TOKEN = "YOUR_API_TOKEN";
 
 // Telegram User ID
-constexpr const char *chatId = "Telegram_ID";
+constexpr const char *chatId = "TELEGRAM_ID";

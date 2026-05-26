@@ -15,6 +15,8 @@ constexpr const char *MQTT_TOPIC_GATEWAY_TELE_PUB = "v1/gateway/telemetry";
 constexpr const uint16_t MQTT_RECONNECT_INTERVAL = 5000; // 5s
 constexpr const uint16_t MQTT_PUBLISH_INTERVAL = 2000; // 2s
 
+constexpr const uint32_t TELEGRAM_COOLDOWN = 60000; // 60 s
+
 constexpr const uint8_t MPU_ADDRESS = 0x68; // MPU-6050 I2C address
 constexpr const uint8_t MPU_SAMPLING_INTERVAL = 10; // 10ms
 
@@ -465,10 +467,10 @@ void urlEncode(const char *str, char *encodedStr, size_t maxLen) {
 }
 
 void sendMessageToTelegram(const char *message) {
-  char encodedMsg[512];
+  char encodedMsg[768];
   urlEncode(message, encodedMsg, sizeof(encodedMsg));
 
-  char apiUrl[1024];
+  char apiUrl[1536];
   snprintf(apiUrl, sizeof(apiUrl),
            "https://api.telegram.org/bot%s/sendMessage?chat_id=%s&text=%s",
            TELEGRAM_BOT_API_TOKEN, CHAT_ID, encodedMsg);
@@ -626,56 +628,113 @@ void calculateIMUError() {
   Serial.println(gyroErrorZ);
 }
 
-char alertEarthquakeNodes[128] = "";
-char dangerAngleNodes[128] = "";
-char alertAngleNodes[128] = "";
-char dangerVelocityNodes[128] = "";
+struct NodeCooldown {
+  const char *name;
+  const char *mapUrl;
+  uint32_t lastAlertEqTime;
+  uint32_t lastDangerAngleTime;
+  uint32_t lastAlertAngleTime;
+  uint32_t lastDangerVelTime;
+};
+
+NodeCooldown nodeTimers[3] = {
+  {"Gateway", "https://www.google.com/maps?q=3.603849926081428,98.66822999261507", 0, 0, 0, 0},
+  {"Node 1", "https://www.google.com/maps?q=3.603852901277159,98.66777711800978", 0, 0, 0, 0},
+  {"Node 2", "https://www.google.com/maps?q=3.603858320647524,98.66732609471924", 0, 0, 0, 0}
+};
+
+char alertEarthquakeNodes[256] = "";
+char dangerAngleNodes[256] = "";
+char alertAngleNodes[256] = "";
+char dangerVelocityNodes[256] = "";
 
 bool evaluateSafetyThresholds(const char *nodeName, float staLtaRatio, float roll, float pitch, float gyroX, float gyroY, float gyroZ) {
+  uint32_t currentTime = millis();
   float absRoll = fabsf(roll);
   float absPitch = fabsf(pitch);
   bool isDangerDetected = false;
+
+  int8_t idx = -1;
+  for (uint8_t i = 0; i < 3; i++) {
+    if (strcmp(nodeTimers[i].name, nodeName) == 0) {
+      idx = i;
+      break;
+    }
+  }
+
+  // Jika nama node aneh/tidak terdaftar, abaikan
+  if (idx == -1) return false;
   
   // Cek threshold gempa
   if (staLtaRatio > 3.0f) {
     isDangerDetected = true;
-    // Jika nama node belum ada di dalam daftar (strstr mengembalikan NULL)
-    if (strstr(alertEarthquakeNodes, nodeName) == NULL) {
-      // Cek apakah wadah masih muat
-      if (strlen(alertEarthquakeNodes) + strlen(nodeName) + 3 <= sizeof(alertEarthquakeNodes)) {
-        strcat(alertEarthquakeNodes, nodeName);
-        strcat(alertEarthquakeNodes, ", ");
+
+    // Cek cooldown khusus node ini dan hanya masukkan ke variabel global jika sudah lewat 1 menit
+    if (currentTime - nodeTimers[idx].lastAlertEqTime >= TELEGRAM_COOLDOWN || nodeTimers[idx].lastAlertEqTime == 0) {
+      // Jika nama node belum ada di dalam daftar (strstr mengembalikan NULL)
+      if (strstr(alertEarthquakeNodes, nodeName) == NULL) {
+        char tempBuffer[78];
+        // Rakit format baris baru: Enter -> Dash -> Nama Node -> Titik Dua -> URL
+        snprintf(tempBuffer, sizeof(tempBuffer), "\n- %s: %s", nodeName, nodeTimers[idx].mapUrl);
+        
+        // Cek apakah wadah 256 byte global masih muat
+        if (strlen(alertEarthquakeNodes) + strlen(tempBuffer) < sizeof(alertEarthquakeNodes)) {
+          strcat(alertEarthquakeNodes, tempBuffer);
+        }
       }
+
+      nodeTimers[idx].lastAlertEqTime = currentTime; // Update waktu lapor node ini
     }
   }
 
   // Cek threshold perubahan sudut kemiringan tanah
   if (absRoll > 5.0f || absPitch > 5.0f) {
     isDangerDetected = true;
-    if (strstr(dangerAngleNodes, nodeName) == NULL) {
-      if (strlen(dangerAngleNodes) + strlen(nodeName) + 3 <= sizeof(dangerAngleNodes)) {
-        strcat(dangerAngleNodes, nodeName);
-        strcat(dangerAngleNodes, ", ");
+
+    if (currentTime - nodeTimers[idx].lastDangerAngleTime >= TELEGRAM_COOLDOWN || nodeTimers[idx].lastDangerAngleTime == 0) {
+      if (strstr(dangerAngleNodes, nodeName) == NULL) {
+        char tempBuffer[78];
+        snprintf(tempBuffer, sizeof(tempBuffer), "\n- %s: %s", nodeName, nodeTimers[idx].mapUrl);
+        
+        if (strlen(dangerAngleNodes) + strlen(tempBuffer) < sizeof(dangerAngleNodes)) {
+          strcat(dangerAngleNodes, tempBuffer);
+        }
       }
+
+      nodeTimers[idx].lastDangerAngleTime = currentTime;
     }
   } else if ((absRoll >= 2.0f && absRoll <= 5.0f) || (absPitch >= 2.0f && absPitch <= 5.0f)) {
     isDangerDetected = true;
-    if (strstr(alertAngleNodes, nodeName) == NULL) {
-      if (strlen(alertAngleNodes) + strlen(nodeName) + 3 <= sizeof(alertAngleNodes)) {
-        strcat(alertAngleNodes, nodeName);
-        strcat(alertAngleNodes, ", ");
+
+    if (currentTime - nodeTimers[idx].lastAlertAngleTime >= TELEGRAM_COOLDOWN || nodeTimers[idx].lastAlertAngleTime == 0) {
+      if (strstr(alertAngleNodes, nodeName) == NULL) {
+        char tempBuffer[78];
+        snprintf(tempBuffer, sizeof(tempBuffer), "\n- %s: %s", nodeName, nodeTimers[idx].mapUrl);
+        
+        if (strlen(alertAngleNodes) + strlen(tempBuffer) < sizeof(alertAngleNodes)) {
+          strcat(alertAngleNodes, tempBuffer);
+        }
       }
+
+      nodeTimers[idx].lastAlertAngleTime = currentTime;
     }
   }
 
   // Cek threshold kecepatan sudut
   if (fabsf(gyroX) > 10.0f || fabsf(gyroY) > 10.0f || fabsf(gyroZ) > 10.0f) {
     isDangerDetected = true;
-    if (strstr(dangerVelocityNodes, nodeName) == NULL) {
-      if (strlen(dangerVelocityNodes) + strlen(nodeName) + 3 <= sizeof(dangerVelocityNodes)) {
-        strcat(dangerVelocityNodes, nodeName);
-        strcat(dangerVelocityNodes, ", ");
+
+    if (currentTime - nodeTimers[idx].lastDangerVelTime >= TELEGRAM_COOLDOWN || nodeTimers[idx].lastDangerVelTime == 0) {
+      if (strstr(dangerVelocityNodes, nodeName) == NULL) {
+        char tempBuffer[78];
+        snprintf(tempBuffer, sizeof(tempBuffer), "\n- %s: %s", nodeName, nodeTimers[idx].mapUrl);
+        
+        if (strlen(dangerVelocityNodes) + strlen(tempBuffer) < sizeof(dangerVelocityNodes)) {
+          strcat(dangerVelocityNodes, tempBuffer);
+        }
       }
+
+      nodeTimers[idx].lastDangerVelTime = currentTime;
     }
   }
 
@@ -684,17 +743,12 @@ bool evaluateSafetyThresholds(const char *nodeName, float staLtaRatio, float rol
 
 // RTOS Core 0 untuk menangani pengiriman pesan ke telegram
 void telegramTask(void *pvParameters) {
-  const uint16_t TELEGRAM_COOLDOWN = 60000; // Jeda 1 menit
-  uint32_t lastEarthquakeTelegramSentTime = 0, lastAngleAlertTelegramSentTime = 0, lastAngleDangerTelegramSentTime = 0, lastAngularVelocityTelegramSentTime = 0;
-
   for (;;) { // Looping abadi khusus Core 0
-    uint32_t currentTaskTime = millis();
-
     if (WiFi.status() == WL_CONNECTED) { // Kalau terhubung ke internet
-      char localAlertEarthquakeNodes[128] = "";
-      char localDangerAngleNodes[128] = "";
-      char localAlertAngleNodes[128] = "";
-      char localDangerVelocityNodes[128] = "";
+      char localAlertEarthquakeNodes[256] = "";
+      char localDangerAngleNodes[256] = "";
+      char localAlertAngleNodes[256] = "";
+      char localDangerVelocityNodes[256] = "";
 
       // Pegang gembok
       if (xSemaphoreTake(alertMutex, portMAX_DELAY) == pdTRUE) {
@@ -719,49 +773,34 @@ void telegramTask(void *pvParameters) {
         xSemaphoreGive(alertMutex); // Buka gembok secepatnya!
       }
 
+      // Cek dan kirim pesan ke telegram
       if (strlen(localAlertEarthquakeNodes) > 0) {
-        if (currentTaskTime - lastEarthquakeTelegramSentTime >= TELEGRAM_COOLDOWN || lastEarthquakeTelegramSentTime == 0) {
-          char msg[256];
-          snprintf(msg, sizeof(msg), "https://www.google.com/maps?q=3.603849926081428,98.66822999261507\n\n⚠️ Waspada!\nTerdeteksi getaran tanah yang berasal dari gempa di titik: %sberpotensi longsor!", localAlertEarthquakeNodes);
-          
-          Serial.println(F("----------------\r\n[Core 0] Alert, Earthquake! Sending message to Telegram..."));
-          sendMessageToTelegram(msg);
-          
-          lastEarthquakeTelegramSentTime = currentTaskTime;
-        }
+        char msg[512];
+        snprintf(msg, sizeof(msg), "⚠️ Waspada!\nTerdeteksi getaran tanah yang berasal dari gempa berpotensi longsor di titik berikut:%s", localAlertEarthquakeNodes);
+
+        Serial.println(F("----------------\r\n[Core 0] Alert, Earthquake! Sending message to Telegram..."));
+        sendMessageToTelegram(msg);
       }
       if (strlen(localAlertAngleNodes) > 0) {
-        if (currentTaskTime - lastAngleAlertTelegramSentTime >= TELEGRAM_COOLDOWN || lastAngleAlertTelegramSentTime == 0) {
-          char msg[256];
-          snprintf(msg, sizeof(msg), "https://www.google.com/maps?q=3.603849926081428,98.66822999261507\n\n⚠️ Waspada!\nTerdeteksi perubahan sudut kemiringan tanah di titik: %sberpotensi longsor!", localAlertAngleNodes);
-          
-          Serial.println(F("----------------\r\n[Core 0] Alert, The land is getting sloping! Sending message to Telegram..."));
-          sendMessageToTelegram(msg);
-          
-          lastAngleAlertTelegramSentTime = currentTaskTime;
-        }
+        char msg[512];
+        snprintf(msg, sizeof(msg), "⚠️ Waspada!\nTerdeteksi perubahan sudut kemiringan tanah berpotensi longsor di titik berikut:%s", localAlertAngleNodes);
+
+        Serial.println(F("----------------\r\n[Core 0] Alert, The land is getting sloping! Sending message to Telegram..."));
+        sendMessageToTelegram(msg);
       }
       if (strlen(localDangerAngleNodes) > 0) {
-        if (currentTaskTime - lastAngleDangerTelegramSentTime >= TELEGRAM_COOLDOWN || lastAngleDangerTelegramSentTime == 0) {
-          char msg[256];
-          snprintf(msg, sizeof(msg), "https://www.google.com/maps?q=3.603849926081428,98.66822999261507\n\n🚨 Bahaya!\nTerdeteksi perubahan sudut kemiringan tanah semakin tinggi di titik: %skemungkinan besar longsor!", localDangerAngleNodes);
-          
-          Serial.println(F("----------------\r\n[Core 0] Danger, The land is getting more sloping! Sending message to Telegram..."));
-          sendMessageToTelegram(msg);
-          
-          lastAngleDangerTelegramSentTime = currentTaskTime;
-        }
+        char msg[512];
+        snprintf(msg, sizeof(msg), "🚨 Bahaya!\nTerdeteksi perubahan sudut kemiringan tanah semakin tinggi berkemungkinan besar longsor di titik berikut:%s", localDangerAngleNodes);
+
+        Serial.println(F("----------------\r\n[Core 0] Danger, The land is getting more sloping! Sending message to Telegram..."));
+        sendMessageToTelegram(msg);
       }
       if (strlen(localDangerVelocityNodes) > 0) {
-        if (currentTaskTime - lastAngularVelocityTelegramSentTime >= TELEGRAM_COOLDOWN || lastAngularVelocityTelegramSentTime == 0) {
-          char msg[256];
-          snprintf(msg, sizeof(msg), "https://www.google.com/maps?q=3.603849926081428,98.66822999261507\n\n🚨 Bahaya!\nTerdeteksi alat pemantauan jatuh di titik: %sindikasi terjadinya tanah longsor, periksa lereng segera!", localDangerVelocityNodes);
-          
-          Serial.println(F("----------------\r\n[Core 0] Danger, The landslide! Sending message to Telegram..."));
-          sendMessageToTelegram(msg);
-          
-          lastAngularVelocityTelegramSentTime = currentTaskTime;
-        }
+        char msg[512];
+        snprintf(msg, sizeof(msg), "🚨 Bahaya!\nTerdeteksi alat pemantauan jatuh di titik berikut:%s\nIndikasi terjadinya tanah longsor, periksa lereng segera!", localDangerVelocityNodes);
+
+        Serial.println(F("----------------\r\n[Core 0] Danger, The landslide! Sending message to Telegram..."));
+        sendMessageToTelegram(msg);
       }
     }
 

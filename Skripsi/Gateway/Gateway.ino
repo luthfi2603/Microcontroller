@@ -9,21 +9,21 @@
 #include "secrets.h"
 
 // Deklarasi variabel global
-constexpr const uint16_t WIFI_RECONNECT_INTERVAL = 5000; // 5s
+constexpr const uint16_t WIFI_RECONNECT_INTERVAL = 5000; // 5 s
 
 constexpr const char *MQTT_TOPIC_GATEWAY_TELE_PUB = "v1/gateway/telemetry";
-constexpr const uint16_t MQTT_RECONNECT_INTERVAL = 5000; // 5s
-constexpr const uint16_t MQTT_PUBLISH_INTERVAL = 2000; // 2s
+constexpr const uint16_t MQTT_RECONNECT_INTERVAL = 5000; // 5 s
+constexpr const uint16_t MQTT_PUBLISH_INTERVAL = 5000; // 5 s
 
 constexpr const uint32_t TELEGRAM_COOLDOWN = 60000; // 60 s
 
 constexpr const uint8_t MPU_ADDRESS = 0x68; // MPU-6050 I2C address
-constexpr const uint8_t MPU_SAMPLING_INTERVAL = 10; // 10ms
+constexpr const uint8_t MPU_SAMPLING_INTERVAL = 10; // 10 ms
 
 constexpr const uint8_t LORA_CS = 5;
 constexpr const uint8_t LORA_IRQ = 4;
 constexpr const uint8_t LORA_RST = 26;
-constexpr const uint16_t LORA_CHECK_INTERVAL = 1000; // 1s
+constexpr const uint16_t LORA_CHECK_INTERVAL = 1000; // 1 s
 constexpr const uint8_t NODE_ID = 0; // Alamat ID node ini
 
 constexpr const float RAD_TO_DEG_F = 57.29577951f; // 180 / PI(3.14)
@@ -42,9 +42,7 @@ WiFiClientSecure secureWiFiClient;
 PubSubClient mqttClient(wiFiClient);
 RH_RF95 rf95(LORA_CS, LORA_IRQ);
 RHReliableDatagram manager(rf95, NODE_ID);
-
-// Gembok pelindung tabrakan antar Core
-SemaphoreHandle_t alertMutex;
+SemaphoreHandle_t alertMutex; // Gembok pelindung tabrakan antar Core
 
 // Prototipe fungsi
 void telegramTask(void *pvParameters);
@@ -95,7 +93,7 @@ void setup() {
   // Inisialisasi sensor MPU-6050
   Serial.println(F("----------------\r\nInitializing MPU-6050..."));
   Wire.begin();                                   // Initialize comunication
-  Wire.beginTransmission(MPU_ADDRESS);                // Start communication with MPU6050 // MPU_ADDRESS=0x68
+  Wire.beginTransmission(MPU_ADDRESS);            // Start communication with MPU6050 // MPU_ADDRESS=0x68
   Wire.write(0x6B);                               // Talk to the register 6B
   Wire.write(0x00);                               // Make reset - place a 0 into the 6B register
   uint8_t statusI2C = Wire.endTransmission(true); // End the transmission
@@ -122,6 +120,10 @@ void setup() {
     Serial.println(F("Failed to read register WHO_AM_I!"));
     while (1) { delay(1000); }
   }
+
+  // Hitung error sensor MPU-6050
+  calculateIMUError();
+  delay(20);
 
   // Menghubungkan ke jaringan Wi-Fi
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
@@ -151,10 +153,6 @@ void setup() {
       delay(5000);
     }
   }
-
-  // Hitung error sensor MPU-6050
-  calculateIMUError();
-  delay(20);
 
   // Membuat gembok RTOS
   alertMutex = xSemaphoreCreateMutex();
@@ -231,9 +229,9 @@ void loop() {
 
       if (manager.init() && rf95.setFrequency(923.2)) {
         rf95.setTxPower(5, false);
-        Serial.println(F("----------------\r\nLoRa reinit success!"));
+        Serial.println(F("LoRa reinit success!"));
       } else {
-        Serial.println(F("----------------\r\nLoRa reinit failed!"));
+        Serial.println(F("LoRa reinit failed!"));
       }
     }
     
@@ -255,11 +253,23 @@ void loop() {
       dataBuffer[dataLength] = '\0';
       const char *loRaPayload = (char*)dataBuffer; // Byte jadi c-string
 
+      // Ambil nilai RSSI (Kekuatan Sinyal)
+      int16_t rssi = rf95.lastRssi();
+
+      Serial.print(F("----------------\r\nMessage received from ID: "));
+      Serial.println(fromAddress);
+      Serial.println(F("Message:"));
+      Serial.println(loRaPayload);
+      Serial.print(F("RSSI: "));
+      Serial.print(rssi);
+      Serial.println(F(" dBm"));
+      Serial.println(F("Automatically send ACK reply to sending node..."));
+      Serial.println(F("LoRa starting to listen again..."));
+
       // Parsing JSON string
       JsonDocument json;
       DeserializationError error = deserializeJson(json, loRaPayload);
 
-      Serial.println(F("----------------"));
       if (error) {
         Serial.print(F("Failed to parsing JSON LoRa!, Error: "));
         Serial.println(error.f_str());
@@ -269,19 +279,6 @@ void loop() {
 
         mqttPublishToThingsBoard(loRaPayload);
       }
-
-      // Ambil nilai RSSI (Kekuatan Sinyal)
-      int16_t rssi = rf95.lastRssi();
-
-      Serial.print(F("Message received from ID: "));
-      Serial.println(fromAddress);
-      Serial.println(F("Message:"));
-      Serial.println(loRaPayload);
-      Serial.print(F("RSSI: "));
-      Serial.print(rssi);
-      Serial.println(F(" dBm"));
-      Serial.println(F("Automatically send ACK reply to sending node..."));
-      Serial.println(F("LoRa starting to listen again..."));
     }
   }
 
@@ -293,7 +290,7 @@ void loop() {
 
   // Pembacaan sensor MPU-6050
   if (currentTime - lastSampleTime >= MPU_SAMPLING_INTERVAL) {
-    static float accAngleX = 0.0f, accAngleY = 0.0f;
+    float accAngleX = 0.0f, accAngleY = 0.0f;
 
     // Read acceleromter data
     Wire.beginTransmission(MPU_ADDRESS);
@@ -353,14 +350,14 @@ void loop() {
     }
 
     // Read gyroscope data
-    static uint32_t lastGyroTime = currentGyroTime; // Previous time is stored before the actual time read
+    uint32_t lastGyroTime = currentGyroTime; // Previous time is stored before the actual time read
     currentGyroTime = millis(); // Current time actual time read
     float elapsedTime = (currentGyroTime - lastGyroTime) * 0.001f; // Divide by 1000 to get seconds
     Wire.beginTransmission(MPU_ADDRESS);
     Wire.write(0x43); // Gyro data first register address 0x43
     Wire.endTransmission(false);
     if (Wire.requestFrom(MPU_ADDRESS, 6, true) == 6) { // Read 6 registers total, each axis value is stored in 2 registers
-      gyroX = (int16_t)(Wire.read() << 8 | Wire.read()) * GYRO_SCALE; // For a 250deg/s range we have to divide first the raw value by 131.0, according to the datasheet
+      gyroX = (int16_t)(Wire.read() << 8 | Wire.read()) * GYRO_SCALE; // For a 250 deg/s range we have to divide first the raw value by 131.0, according to the datasheet
       gyroY = (int16_t)(Wire.read() << 8 | Wire.read()) * GYRO_SCALE;
       gyroZ = (int16_t)(Wire.read() << 8 | Wire.read()) * GYRO_SCALE;
       // Correct the outputs with the calculated error values
@@ -414,7 +411,7 @@ void loop() {
 
     static bool lastDangerState = false;
 
-    if (dangerState && !lastDangerState) {
+    if (dangerState && !lastDangerState) { // Publish data gateway hanya jika melewati threshold
       char jsonPayload[256];
       buildJsonPayload(jsonPayload, sizeof(jsonPayload), "Gateway", accDyn, staLtaRatio, roll, pitch, gyroX, gyroY, gyroZ);
 
@@ -443,6 +440,8 @@ void loop() {
 
 void urlEncode(const char *str, char *encodedStr, size_t maxLen) {
   size_t encodedIdx = 0;
+
+  Serial.println(F("----------------"));
 
   for (size_t i = 0; i < strlen(str); i++) {
     // Cegah buffer overflow dengan pastikan wadah masih muat untuk 3 karakter ("%XX") + 1 karakter penutup ('\0')
@@ -475,7 +474,7 @@ void sendMessageToTelegram(const char *message) {
            "https://api.telegram.org/bot%s/sendMessage?chat_id=%s&text=%s",
            TELEGRAM_BOT_API_TOKEN, CHAT_ID, encodedMsg);
   
-  Serial.println(F("----------------\r\nTrying request to: "));
+  Serial.println(F("Trying request to: "));
   Serial.println(apiUrl);
 
   HTTPClient http;

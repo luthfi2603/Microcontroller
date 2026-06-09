@@ -12,10 +12,10 @@ constexpr const uint16_t LORA_TX_INTERVAL = 5000; // 5 s
 constexpr const uint8_t LORA_CS = 5;
 constexpr const uint8_t LORA_IRQ = 4;
 constexpr const uint8_t LORA_RST = 26;
-constexpr const uint16_t LORA_CHECK_INTERVAL = 1000; // 1 s
-constexpr const char *NODE_NAME = "Node 2";
-constexpr const uint8_t NODE_ID = 2; // Alamat ID node ini
-constexpr const uint8_t RECEIVER_ID = 1; // Alamat ID tujuan
+constexpr const uint16_t LORA_CHECK_INTERVAL = 5000; // 5 s
+constexpr const char *NODE_NAME = "Node 1";
+constexpr const uint8_t NODE_ID = 1; // Alamat ID node ini
+constexpr const uint8_t RECEIVER_ID = 0; // Alamat ID tujuan
 
 constexpr const float RAD_TO_DEG_F = 57.29577951f; // 180 / PI(3.14)
 constexpr const float ACCEL_SCALE = 1.0f / 16384.0f; // / 16384
@@ -31,6 +31,8 @@ RH_RF95 rf95(LORA_CS, LORA_IRQ);
 RHReliableDatagram manager(rf95, NODE_ID);
 
 // Prototipe fungsi
+void initLoRa();
+void initMPU();
 void calculateIMUError();
 bool evaluateSafetyThresholds(const char *nodeName, float staLtaRatio, float roll, float pitch, float gyroX, float gyroY, float gyroZ);
 void buildJsonPayload(char *outputBuffer, size_t maxLen, const char *nodeName, float accDyn, float staLtaRatio, float roll, float pitch, float gyroX, float gyroY, float gyroZ);
@@ -40,71 +42,11 @@ void setup() {
   Serial.begin(115200);
   delay(2000);
 
-  // Inisialisasi LoRa SX1276 (sama dengan RF95)
-  Serial.println(F("\r\nInitializing LoRa with RadioHead..."));
-
-  // Praktik Terbaik untuk ESP32 + SX1276:
-  // Lakukan reset manual pada chip sebelum inisialisasi agar terhindar dari error chip tidak terbaca
-  pinMode(LORA_RST, OUTPUT);
-  digitalWrite(LORA_RST, HIGH);
-  delay(10);
-  digitalWrite(LORA_RST, LOW);
-  delay(10);
-  digitalWrite(LORA_RST, HIGH);
-  delay(10);
-
-  // Inisialisasi Manager
-  if (!manager.init()) {
-    Serial.println(F("Lora init failed! Check SPI cable (MISO, MOSI, SCK, CS)!"));
-    while (1) { delay(1000); } // Berhenti di sini jika gagal
-  }
-  
-  Serial.println(F("LoRa init success!"));
-
-  // Konfigurasi Frekuensi (Sesuaikan dengan aturan regulasi Indonesia)
-  if (!rf95.setFrequency(923.2)) {
-    Serial.println(F("Set frequency failed!"));
-    while (1) { delay(1000); }
-  }
-
-  // Konfigurasi Power (Maksimal 23 dBm untuk SX1276)
-  rf95.setTxPower(5, false);
-  
-  manager.setRetries(3); // Ubah jumlah pengiriman ulang (default = 3)
-  manager.setTimeout(200); // Waktu tunggu ACK dalam milidetik (default = 200)
-
-  Serial.println(F("LoRa starting to listen..."));
+  // Inisialisasi LoRa SX1276
+  initLoRa();
 
   // Inisialisasi sensor MPU-6050
-  Serial.println(F("----------------\r\nInitializing MPU-6050..."));
-  Wire.begin();                                   // Initialize comunication
-  Wire.beginTransmission(MPU_ADDRESS);            // Start communication with MPU6050 // MPU_ADDRESS=0x68
-  Wire.write(0x6B);                               // Talk to the register 6B
-  Wire.write(0x00);                               // Make reset - place a 0 into the 6B register
-  uint8_t statusI2C = Wire.endTransmission(true); // End the transmission
-  if (statusI2C != 0) {
-    Serial.print(F("MPU-6050 init failed because of I2C problem!, Code: "));
-    Serial.println(statusI2C);
-    while (1) { delay(1000); } // Hentikan program tanpa membuat Watchdog Crash
-  }
-  Wire.beginTransmission(MPU_ADDRESS);
-  Wire.write(0x75); // Tanya KTP (Register WHO_AM_I)
-  Wire.endTransmission(false);
-  
-  if (Wire.requestFrom(MPU_ADDRESS, 1, true) == 1) {
-    uint8_t whoAmI = Wire.read();
-    
-    if (whoAmI == 0x68 || whoAmI == 0x70) {
-      Serial.println(F("MPU-6050 init success!"));
-    } else {
-      Serial.print(F("MPU-6050 is not connected (0x68 || 0x70)!, Register: 0x"));
-      Serial.println(whoAmI, HEX);
-      while (1) { delay(1000); }
-    }
-  } else {
-    Serial.println(F("Failed to read register WHO_AM_I!"));
-    while (1) { delay(1000); }
-  }
+  initMPU();
 
   // Hitung error sensor MPU-6050
   calculateIMUError();
@@ -355,6 +297,74 @@ void loop() {
   checkMPUConnectivity();
 }
 
+void initLoRa() {
+  Serial.println(F("\r\nInitializing LoRa with RadioHead..."));
+
+  // Praktik Terbaik untuk ESP32 + SX1276:
+  // Lakukan reset manual pada chip sebelum inisialisasi agar terhindar dari error chip tidak terbaca
+  pinMode(LORA_RST, OUTPUT);
+  digitalWrite(LORA_RST, HIGH);
+  delay(10);
+  digitalWrite(LORA_RST, LOW);
+  delay(10);
+  digitalWrite(LORA_RST, HIGH);
+  delay(10);
+
+  // Inisialisasi Manager
+  if (!manager.init()) {
+    Serial.println(F("Lora init failed! Check SPI cable (MISO, MOSI, SCK, CS)!"));
+    while (1) { delay(1000); } // Berhenti di sini jika gagal
+  }
+  
+  Serial.println(F("LoRa init success!"));
+
+  // Konfigurasi Frekuensi (Sesuaikan dengan aturan regulasi Indonesia)
+  if (!rf95.setFrequency(923.2)) {
+    Serial.println(F("Set frequency failed!"));
+    while (1) { delay(1000); }
+  }
+
+  // Konfigurasi Power (Maksimal 23 dBm untuk SX1276)
+  rf95.setTxPower(5, false);
+  
+  manager.setRetries(3); // Ubah jumlah pengiriman ulang (default = 3)
+  manager.setTimeout(200); // Waktu tunggu ACK dalam milidetik (default = 200)
+
+  Serial.println(F("LoRa starting to listen..."));
+}
+
+void initMPU() {
+  Serial.println(F("----------------\r\nInitializing MPU-6050..."));
+  Wire.begin();                                   // Initialize comunication
+  Wire.beginTransmission(MPU_ADDRESS);            // Start communication with MPU6050 // MPU_ADDRESS=0x68
+  Wire.write(0x6B);                               // Talk to the register 6B
+  Wire.write(0x00);                               // Make reset - place a 0 into the 6B register
+  uint8_t statusI2C = Wire.endTransmission(true); // End the transmission
+  if (statusI2C != 0) {
+    Serial.print(F("MPU-6050 init failed because of I2C problem!, Code: "));
+    Serial.println(statusI2C);
+    while (1) { delay(1000); } // Hentikan program tanpa membuat Watchdog Crash
+  }
+  Wire.beginTransmission(MPU_ADDRESS);
+  Wire.write(0x75); // Tanya KTP (Register WHO_AM_I)
+  Wire.endTransmission(false);
+  
+  if (Wire.requestFrom(MPU_ADDRESS, 1, true) == 1) {
+    uint8_t whoAmI = Wire.read();
+    
+    if (whoAmI == 0x68 || whoAmI == 0x70) {
+      Serial.println(F("MPU-6050 init success!"));
+    } else {
+      Serial.print(F("MPU-6050 is not connected (0x68 || 0x70)!, Register: 0x"));
+      Serial.println(whoAmI, HEX);
+      while (1) { delay(1000); }
+    }
+  } else {
+    Serial.println(F("Failed to read register WHO_AM_I!"));
+    while (1) { delay(1000); }
+  }
+}
+
 void checkMPUConnectivity() {
   if (mpuConnectionState != lastMpuConnectionState) {
     if (!mpuConnectionState) { // Hanya kalau false/disconnected
@@ -445,6 +455,31 @@ void calculateIMUError() {
   Serial.println(gyroErrorZ);
 }
 
+bool evaluateSafetyThresholds(const char *nodeName, float staLtaRatio, float roll, float pitch, float gyroX, float gyroY, float gyroZ) {
+  float absRoll = fabsf(roll);
+  float absPitch = fabsf(pitch);
+  bool isDangerDetected = false;
+
+  // Cek threshold gempa
+  if (staLtaRatio > 3.0f) {
+    isDangerDetected = true;
+  }
+
+  // Cek threshold perubahan sudut kemiringan tanah
+  if (absRoll > 5.0f || absPitch > 5.0f) {
+    isDangerDetected = true;
+  } else if ((absRoll >= 2.0f && absRoll <= 5.0f) || (absPitch >= 2.0f && absPitch <= 5.0f)) {
+    isDangerDetected = true;
+  }
+
+  // Cek threshold kecepatan sudut
+  if (fabsf(gyroX) > 10.0f || fabsf(gyroY) > 10.0f || fabsf(gyroZ) > 10.0f) {
+    isDangerDetected = true;
+  }
+
+  return isDangerDetected;
+}
+
 void buildJsonPayload(char *outputBuffer, size_t maxLen, const char *nodeName, float accDyn, float staLtaRatio, float roll, float pitch, float gyroX, float gyroY, float gyroZ) {
   JsonDocument json;
   JsonObject nodeData = json[nodeName].add<JsonObject>();
@@ -482,29 +517,4 @@ void loRaTransmit(const char *jsonPayload) {
   } else {
     Serial.println(F("Transmission failed! There is no ACK response!"));
   }
-}
-
-bool evaluateSafetyThresholds(const char *nodeName, float staLtaRatio, float roll, float pitch, float gyroX, float gyroY, float gyroZ) {
-  float absRoll = fabsf(roll);
-  float absPitch = fabsf(pitch);
-  bool isDangerDetected = false;
-
-  // Cek threshold gempa
-  if (staLtaRatio > 3.0f) {
-    isDangerDetected = true;
-  }
-
-  // Cek threshold perubahan sudut kemiringan tanah
-  if (absRoll > 5.0f || absPitch > 5.0f) {
-    isDangerDetected = true;
-  } else if ((absRoll >= 2.0f && absRoll <= 5.0f) || (absPitch >= 2.0f && absPitch <= 5.0f)) {
-    isDangerDetected = true;
-  }
-
-  // Cek threshold kecepatan sudut
-  if (fabsf(gyroX) > 10.0f || fabsf(gyroY) > 10.0f || fabsf(gyroZ) > 10.0f) {
-    isDangerDetected = true;
-  }
-
-  return isDangerDetected;
 }

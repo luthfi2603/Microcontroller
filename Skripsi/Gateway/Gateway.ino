@@ -1,15 +1,21 @@
+// #define TINY_GSM_DEBUG Serial
+#define TINY_GSM_YIELD() { delay(2); }
+#define TINY_GSM_RX_BUFFER 2048
+#define TINY_GSM_MODEM_SIM800
+// #include <StreamDebugger.h>
+#include <TinyGsmClient.h>
 #include <ArduinoJson.h>
-#include <HTTPClient.h>
+#include <ArduinoHttpClient.h>
 #include <PubSubClient.h>
-#include <WiFi.h>
-#include <WiFiClientSecure.h>
 #include <Wire.h>
 #include <RH_RF95.h>
 #include <RHReliableDatagram.h>
 #include "secrets.h"
 
 // Deklarasi variabel global
-constexpr const uint16_t WIFI_RECONNECT_INTERVAL = 5000; // 5 s
+constexpr const uint8_t RXD2 = 16;
+constexpr const uint8_t TXD2 = 17;
+constexpr const uint16_t NETWORK_4G_RECONNECT_INTERVAL = 5000; // 5 s
 
 constexpr const char *MQTT_TOPIC_GATEWAY_TELE_PUB = "v1/gateway/telemetry";
 constexpr const uint16_t MQTT_RECONNECT_INTERVAL = 5000; // 5 s
@@ -23,7 +29,7 @@ constexpr const uint8_t MPU_SAMPLING_INTERVAL = 10; // 10 ms
 constexpr const uint8_t LORA_CS = 5;
 constexpr const uint8_t LORA_IRQ = 4;
 constexpr const uint8_t LORA_RST = 26;
-constexpr const uint16_t LORA_CHECK_INTERVAL = 1000; // 1 s
+constexpr const uint16_t LORA_CHECK_INTERVAL = 5000; // 5 s
 constexpr const uint8_t NODE_ID = 0; // Alamat ID node ini
 
 constexpr const float RAD_TO_DEG_F = 57.29577951f; // 180 / PI(3.14)
@@ -35,127 +41,61 @@ constexpr const uint16_t LTA_WINDOW = 2000; // 20 detik (2000 sampel)
 float accErrorX, accErrorY, gyroErrorX, gyroErrorY, gyroErrorZ;
 bool mpuConnectionState, lastMpuConnectionState = true;
 uint32_t currentGyroTime;
-// volatile bool earthquakeFlag = false, angleAlertFlag = false, angleDangerFlag = false, angularVelocityFlag = false;
+volatile bool network4GState = true;
 
-WiFiClient wiFiClient;
-WiFiClientSecure secureWiFiClient;
-PubSubClient mqttClient(wiFiClient);
+/* StreamDebugger debugger(Serial2, Serial);
+TinyGsm modem(debugger); */
+TinyGsm modem(Serial2);
+TinyGsmClient cellularClient(modem, 0);
+TinyGsmClientSecure secureCellularClient(modem, 1); // Default bypass verifikasi sertifikat SSL
+PubSubClient mqttClient(cellularClient);
 RH_RF95 rf95(LORA_CS, LORA_IRQ);
 RHReliableDatagram manager(rf95, NODE_ID);
-SemaphoreHandle_t alertMutex; // Gembok pelindung tabrakan antar Core
+SemaphoreHandle_t alertMutex; // Gembok pelindung tabrakan antar core
+SemaphoreHandle_t modemMutex;
 
 // Prototipe fungsi
-void telegramTask(void *pvParameters);
+void init4G();
+void initLoRa();
+void initMPU();
+void calculateIMUError();
+void checkMPUConnectivity();
+void initMQTT();
+void mqttReconnect();
 void urlEncode(const char *str, char *encodedStr, size_t maxLen);
 void sendMessageToTelegram(const char *message);
-bool evaluateSafetyThresholds(const char *nodeName, float staLtaRatio, float roll, float pitch, float gyroX, float gyroY, float gyroZ);
-void mqttReconnect();
 void buildJsonPayload(char *outputBuffer, size_t maxLen, const char *nodeName, float accDyn, float staLtaRatio, float roll, float pitch, float gyroX, float gyroY, float gyroZ);
 void mqttPublishToThingsBoard(const char *jsonPayload);
-void checkMPUConnectivity();
-void calculateIMUError();
+bool evaluateSafetyThresholds(const char *nodeName, float staLtaRatio, float roll, float pitch, float gyroX, float gyroY, float gyroZ);
+void telegramTask(void *pvParameters);
 
 void setup() {
   Serial.begin(115200);
-  delay(1000);
+  delay(2000);
 
-  // Inisialisasi LoRa SX1276 (sama dengan RF95)
-  Serial.println(F("\r\nInitializing LoRa with RadioHead..."));
+  // Inisialisasi jalur hardware serial 2 menuju modul 4G
+  Serial2.begin(115200, SERIAL_8N1, RXD2, TXD2);
+  delay(3000);
 
-  // Reset manual pada chip sebelum inisialisasi
-  pinMode(LORA_RST, OUTPUT);
-  digitalWrite(LORA_RST, HIGH);
-  delay(10);
-  digitalWrite(LORA_RST, LOW);
-  delay(10);
-  digitalWrite(LORA_RST, HIGH);
-  delay(10);
+  // Inisialisasi jaringan seluler 4G LTE menggunakan modul Air780E
+  init4G();
 
-  // Inisialisasi Manager
-  if (!manager.init()) {
-    Serial.println(F("Lora init failed! Check SPI cable (MISO, MOSI, SCK, CS)!"));
-    while (1) { delay(1000); } // Berhenti di sini jika gagal
-  }
-  
-  Serial.println(F("LoRa init success!"));
-
-  // Konfigurasi Frekuensi (Sesuaikan dengan aturan regulasi Indonesia)
-  if (!rf95.setFrequency(923.2)) {
-    Serial.println(F("Set frequency failed!"));
-    while (1) { delay(1000); }
-  }
-
-  // Konfigurasi Power (Maksimal 23 dBm untuk SX1276)
-  rf95.setTxPower(5, false);
-  
-  Serial.println(F("LoRa starting to listen..."));
+  // Inisialisasi LoRa SX1276
+  initLoRa();
 
   // Inisialisasi sensor MPU-6050
-  Serial.println(F("----------------\r\nInitializing MPU-6050..."));
-  Wire.begin();                                   // Initialize comunication
-  Wire.beginTransmission(MPU_ADDRESS);            // Start communication with MPU6050 // MPU_ADDRESS=0x68
-  Wire.write(0x6B);                               // Talk to the register 6B
-  Wire.write(0x00);                               // Make reset - place a 0 into the 6B register
-  uint8_t statusI2C = Wire.endTransmission(true); // End the transmission
-  if (statusI2C != 0) {
-    Serial.print(F("MPU-6050 init failed because of I2C problem!, Code: "));
-    Serial.println(statusI2C);
-    while (1) { delay(1000); } // Hentikan program tanpa membuat Watchdog Crash
-  }
-  Wire.beginTransmission(MPU_ADDRESS);
-  Wire.write(0x75); // Tanya KTP (Register WHO_AM_I)
-  Wire.endTransmission(false);
-  
-  if (Wire.requestFrom(MPU_ADDRESS, 1, true) == 1) {
-    uint8_t whoAmI = Wire.read();
-    
-    if (whoAmI == 0x68 || whoAmI == 0x70) {
-      Serial.println(F("MPU-6050 init success!"));
-    } else {
-      Serial.print(F("MPU-6050 is not connected (0x68 || 0x70)!, Register: 0x"));
-      Serial.println(whoAmI, HEX);
-      while (1) { delay(1000); }
-    }
-  } else {
-    Serial.println(F("Failed to read register WHO_AM_I!"));
-    while (1) { delay(1000); }
-  }
+  initMPU();
 
   // Hitung error sensor MPU-6050
   calculateIMUError();
   delay(20);
 
-  // Menghubungkan ke jaringan Wi-Fi
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-
-  Serial.print(F("----------------\r\nConnecting to Wi-Fi"));
-  while (WiFi.status() != WL_CONNECTED) {
-    Serial.print(F("."));
-
-    delay(500);
-  }
-  Serial.println(F("\r\nConnected to the Wi-Fi network!"));
-
-  secureWiFiClient.setInsecure(); // Bypass verifikasi sertifikat SSL
-
   // Menghubungkan ke MQTT Broker
-  mqttClient.setServer(MQTT_BROKER, MQTT_PORT);
-
-  while (!mqttClient.connected()) {
-    Serial.println(F("----------------\r\nConnecting to MQTT Broker..."));
-    if (mqttClient.connect("LandSlidEtect_Gateway", GATEWAY_ACCESS_TOKEN, "")) {
-      Serial.println(F("Connected to MQTT Broker!"));
-    } else {
-      Serial.print(F("Failed with state "));
-      Serial.print(mqttClient.state());
-      Serial.println(F(" try again in 5 seconds!"));
-
-      delay(5000);
-    }
-  }
+  initMQTT();
 
   // Membuat gembok RTOS
   alertMutex = xSemaphoreCreateMutex();
+  modemMutex = xSemaphoreCreateMutex();
 
   // Bangunkan Core 0
   xTaskCreatePinnedToCore(
@@ -175,39 +115,54 @@ void setup() {
 
 void loop() {
   uint32_t currentTime = millis();
-  static bool lastWiFiState = true;
 
-  // Cek konektivitas Wi-Fi dan MQTT
-  bool wiFiState = (WiFi.status() == WL_CONNECTED);
+  // Cek konektivitas 4G LTE dan MQTT
+  if (!network4GState) { // Kalau disconnected
+    static uint32_t lastNetwork4GReconnectTime = 0;
 
-  if (!wiFiState) { // Kalau disconnected
-    static uint32_t lastWiFiReconnectTime = 0;
+    if (currentTime - lastNetwork4GReconnectTime >= NETWORK_4G_RECONNECT_INTERVAL) {
+      if (xSemaphoreTake(modemMutex, portMAX_DELAY) == pdTRUE) {
+        Serial.println(F("----------------"));
 
-    if (currentTime - lastWiFiReconnectTime >= WIFI_RECONNECT_INTERVAL) {
-      Serial.println(F("----------------\r\nWi-Fi disconnected! Attempting to reconnect..."));
-      WiFi.reconnect();
-      
-      lastWiFiReconnectTime = currentTime;
+        if (!modem.isNetworkConnected()) {
+          Serial.println(F("4G LTE disconnected! Waiting for cellular signal..."));
+        } else {
+          if (!modem.isGprsConnected()) {
+            Serial.println(F("4G LTE disconnected! Reconnecting GPRS..."));
+
+            if (modem.gprsConnect(APN, GPRS_USER, GPRS_PASS)) {
+              Serial.println(F("4G LTE reconnect success!"));
+              network4GState = true;
+            } else {
+              Serial.println(F("4G LTE reconnect failed!"));
+            }
+          } else {
+            network4GState = true;
+          }
+        }
+
+        xSemaphoreGive(modemMutex);
+      }
+
+      lastNetwork4GReconnectTime = currentTime;
     }
   } else {
-    if (!lastWiFiState) {
-      Serial.println(F("----------------\r\nWi-Fi reconnect success!"));
-    }
+    if (xSemaphoreTake(modemMutex, portMAX_DELAY) == pdTRUE) {
+      if (!mqttClient.connected()) {
+        static uint32_t lastMqttReconnectTime = 0;
 
-    if (!mqttClient.connected()) {
-      static uint32_t lastMqttReconnectTime = 0;
-
-      if (currentTime - lastMqttReconnectTime >= MQTT_RECONNECT_INTERVAL) {
-        mqttReconnect();
-        
-        lastMqttReconnectTime = currentTime;
+        if (currentTime - lastMqttReconnectTime >= MQTT_RECONNECT_INTERVAL) {
+          mqttReconnect();
+          
+          lastMqttReconnectTime = currentTime;
+        }
+      } else { // Kalau tidak ada masalah
+        mqttClient.loop();
       }
-    } else { // Kalau tidak ada masalah
-      mqttClient.loop();
+
+      xSemaphoreGive(modemMutex);
     }
   }
-
-  lastWiFiState = wiFiState;
 
   static uint32_t lastLoRaCheckTime = 0;
   
@@ -438,114 +393,107 @@ void loop() {
   checkMPUConnectivity();
 }
 
-void urlEncode(const char *str, char *encodedStr, size_t maxLen) {
-  size_t encodedIdx = 0;
+void init4G() {
+  Serial.println(F("\r\nInitializing 4G LTE modem..."));
 
-  Serial.println(F("----------------"));
+  Serial.println(F("Checking modem AT response..."));
+  if (!modem.testAT()) {
+    Serial.println(F("Failed! Modem not responding to AT!"));
+    while (1) { delay(1000); }
+  }
+  Serial.println(F("OK! Modem is awake!"));
 
-  for (size_t i = 0; i < strlen(str); i++) {
-    // Cegah buffer overflow dengan pastikan wadah masih muat untuk 3 karakter ("%XX") + 1 karakter penutup ('\0')
-    if (encodedIdx + 3 >= maxLen - 1) {
-      Serial.println(F("Buffer overflow, string cut!"));
-      break; 
-    }
+  // Matikan fitur Echo (Pantulan Teks) secara manual agar library tidak bingung
+  Serial2.print("ATE0\r\n"); 
+  delay(100);
 
-    uint8_t c = (uint8_t)str[i];
+  // Blokir SMS agar tidak mengganggu jalur UART
+  Serial.println(F("Disabling SMS notifications..."));
+  Serial2.print("AT+CNMI=0,0,0,0,0\r\n");
+  delay(100);
 
-    // Menurut RFC 3986, huruf, angka, dan 4 simbol ini tidak boleh di-encode
-    if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') {
-      encodedStr[encodedIdx++] = c;
-    } else { // Sisanya (termasuk spasi dan simbol unik), ubah ke format %HEX
-      snprintf(&encodedStr[encodedIdx], 4, "%%%02X", c);
-      encodedIdx += 3;
-    }
+  // Bersihkan jalur UART
+  while (Serial2.available()) {
+    Serial2.read();
   }
 
-  // Null Terminator
-  encodedStr[encodedIdx] = '\0';
+  Serial.println(F("Waiting for network registration..."));
+  if (!modem.waitForNetwork(60000L)) {
+    Serial.println(F("Network registration failed! Check antenna or SIM status!"));
+    while (1) { delay(1000); }
+  }
+  Serial.println(F("Registered to cellular network!"));
+
+  Serial.print(F("Connecting to GPRS APN: "));
+  Serial.println(APN);
+  if (!modem.gprsConnect(APN, GPRS_USER, GPRS_PASS)) {
+    Serial.println(F("GPRS connection failed!"));
+    while (1) { delay(1000); }
+  }
+  Serial.println(F("GPRS connected! 4G LTE is active!"));
 }
 
-void sendMessageToTelegram(const char *message) {
-  char encodedMsg[768];
-  urlEncode(message, encodedMsg, sizeof(encodedMsg));
+void initLoRa() {
+  Serial.println(F("----------------\r\nInitializing LoRa with RadioHead..."));
 
-  char apiUrl[1536];
-  snprintf(apiUrl, sizeof(apiUrl),
-           "https://api.telegram.org/bot%s/sendMessage?chat_id=%s&text=%s",
-           TELEGRAM_BOT_API_TOKEN, CHAT_ID, encodedMsg);
+  // Reset manual pada chip sebelum inisialisasi
+  pinMode(LORA_RST, OUTPUT);
+  digitalWrite(LORA_RST, HIGH);
+  delay(10);
+  digitalWrite(LORA_RST, LOW);
+  delay(10);
+  digitalWrite(LORA_RST, HIGH);
+  delay(10);
+
+  // Inisialisasi Manager
+  if (!manager.init()) {
+    Serial.println(F("Lora init failed! Check SPI cable (MISO, MOSI, SCK, CS)!"));
+    while (1) { delay(1000); } // Berhenti di sini jika gagal
+  }
   
-  Serial.println(F("Trying request to: "));
-  Serial.println(apiUrl);
+  Serial.println(F("LoRa init success!"));
 
-  HTTPClient http;
-  http.begin(secureWiFiClient, apiUrl);
-
-  int16_t httpResponseCode = http.GET();
-
-  if (httpResponseCode > 0) {
-    Serial.print(F("----------------\r\nHTTP Response Code: "));
-    Serial.println(httpResponseCode);
-
-    // (Catatan: http.getString() masih menggunakan String, tapi tidak apa-apa untuk 
-    // respons sekali lewat. Jika ingin 100% C-String, bisa pakai http.getStream())
-    String payload = http.getString();
-    Serial.println(F("Server Response: "));
-    Serial.println(payload);
-  } else {
-    Serial.print(F("Error Code: "));
-    Serial.println(httpResponseCode);
+  // Konfigurasi Frekuensi (Sesuaikan dengan aturan regulasi Indonesia)
+  if (!rf95.setFrequency(923.2)) {
+    Serial.println(F("Set frequency failed!"));
+    while (1) { delay(1000); }
   }
 
-  http.end();
+  // Konfigurasi Power (Maksimal 23 dBm untuk SX1276)
+  rf95.setTxPower(5, false);
+  
+  Serial.println(F("LoRa starting to listen..."));
 }
 
-void mqttReconnect() {
-  Serial.println(F("----------------\r\nMQTT disconnected! Reconnecting to MQTT Broker..."));
-  if (mqttClient.connect("LandSlidEtect_Gateway", GATEWAY_ACCESS_TOKEN, "")) {
-    Serial.println(F("Reconnected to MQTT Broker!"));
-  } else {
-    Serial.print(F("Failed with state "));
-    Serial.print(mqttClient.state());
-    Serial.println(F(" try again in 5 seconds!"));
+void initMPU() {
+  Serial.println(F("----------------\r\nInitializing MPU-6050..."));
+  Wire.begin();                                   // Initialize comunication
+  Wire.beginTransmission(MPU_ADDRESS);            // Start communication with MPU6050 // MPU_ADDRESS=0x68
+  Wire.write(0x6B);                               // Talk to the register 6B
+  Wire.write(0x00);                               // Make reset - place a 0 into the 6B register
+  uint8_t statusI2C = Wire.endTransmission(true); // End the transmission
+  if (statusI2C != 0) {
+    Serial.print(F("MPU-6050 init failed because of I2C problem!, Code: "));
+    Serial.println(statusI2C);
+    while (1) { delay(1000); } // Hentikan program tanpa membuat Watchdog Crash
   }
-}
-
-void buildJsonPayload(char *outputBuffer, size_t maxLen, const char *nodeName, float accDyn, float staLtaRatio, float roll, float pitch, float gyroX, float gyroY, float gyroZ) {
-  JsonDocument json;
-  JsonObject gatewayData = json[nodeName].add<JsonObject>();
-
-  gatewayData["acc_dyn"] = round(accDyn * 100.0f) / 100.0f;
-  gatewayData["sta_lta_ratio"] = round(staLtaRatio * 100.0f) / 100.0f;
-  gatewayData["roll"] = round(roll * 100.0f) / 100.0f;
-  gatewayData["pitch"] = round(pitch * 100.0f) / 100.0f;
-  gatewayData["gyro_x"] = round(gyroX * 100.0f) / 100.0f;
-  gatewayData["gyro_y"] = round(gyroY * 100.0f) / 100.0f;
-  gatewayData["gyro_z"] = round(gyroZ * 100.0f) / 100.0f;
-
-  serializeJson(json, outputBuffer, maxLen);
-}
-
-void mqttPublishToThingsBoard(const char *jsonPayload) {
-  // Cek apakah Wi-Fi dan MQTT masih terhubung
-  if (WiFi.status() == WL_CONNECTED && mqttClient.connected()) {
-    Serial.println(F("----------------\r\nPublish:"));
-    Serial.println(jsonPayload);
+  Wire.beginTransmission(MPU_ADDRESS);
+  Wire.write(0x75); // Tanya KTP (Register WHO_AM_I)
+  Wire.endTransmission(false);
+  
+  if (Wire.requestFrom(MPU_ADDRESS, 1, true) == 1) {
+    uint8_t whoAmI = Wire.read();
     
-    mqttClient.publish(MQTT_TOPIC_GATEWAY_TELE_PUB, jsonPayload);
-  } else {
-    Serial.println(F("----------------\r\nFailed to publish! Wi-Fi or MQTT Broker disconnected!"));
-  }
-}
-
-void checkMPUConnectivity() {
-  if (mpuConnectionState != lastMpuConnectionState) {
-    if (!mpuConnectionState) { // Hanya kalau false/disconnected
-      Serial.println(F("----------------\r\nSensor MPU-6050 disconnected!"));
+    if (whoAmI == 0x68 || whoAmI == 0x70) {
+      Serial.println(F("MPU-6050 init success!"));
     } else {
-      Serial.println(F("----------------\r\nSensor MPU-6050 reconnected!"));
+      Serial.print(F("MPU-6050 is not connected (0x68 || 0x70)!, Register: 0x"));
+      Serial.println(whoAmI, HEX);
+      while (1) { delay(1000); }
     }
-
-    lastMpuConnectionState = mpuConnectionState;
+  } else {
+    Serial.println(F("Failed to read register WHO_AM_I!"));
+    while (1) { delay(1000); }
   }
 }
 
@@ -625,6 +573,194 @@ void calculateIMUError() {
   Serial.println(gyroErrorY);
   Serial.print(F("GyroErrorZ: "));
   Serial.println(gyroErrorZ);
+}
+
+void checkMPUConnectivity() {
+  if (mpuConnectionState != lastMpuConnectionState) {
+    if (!mpuConnectionState) { // Hanya kalau false/disconnected
+      Serial.println(F("----------------\r\nSensor MPU-6050 disconnected!"));
+    } else {
+      Serial.println(F("----------------\r\nSensor MPU-6050 reconnected!"));
+    }
+
+    lastMpuConnectionState = mpuConnectionState;
+  }
+}
+
+void initMQTT() {
+  mqttClient.setServer(MQTT_BROKER, MQTT_PORT);
+  mqttClient.setBufferSize(64, 320);
+
+  while (!mqttClient.connected()) {
+    Serial.println(F("----------------\r\nConnecting to MQTT Broker..."));
+    if (mqttClient.connect(MQTT_CLIENT_ID, GATEWAY_ACCESS_TOKEN, "")) {
+      Serial.println(F("Connected to MQTT Broker!"));
+    } else {
+      Serial.print(F("Failed with state "));
+      Serial.print(mqttClient.state());
+      Serial.println(F(" try again in 5 seconds!"));
+
+      delay(5000);
+    }
+  }
+}
+
+void mqttReconnect() {
+  Serial.println(F("----------------\r\nMQTT Broker disconnected! Reconnecting to MQTT Broker..."));
+
+  if (mqttClient.connect(MQTT_CLIENT_ID, GATEWAY_ACCESS_TOKEN, "")) {
+    Serial.println(F("Reconnected to MQTT Broker!"));
+  } else {
+    Serial.print(F("Failed with state "));
+    Serial.print(mqttClient.state());
+    Serial.println(F(" try again in 5 seconds!"));
+  }
+}
+
+void urlEncode(const char *str, char *encodedStr, size_t maxLen) {
+  size_t encodedIdx = 0;
+
+  Serial.println(F("----------------"));
+
+  for (size_t i = 0; i < strlen(str); i++) {
+    // Cegah buffer overflow dengan pastikan wadah masih muat untuk 3 karakter ("%XX") + 1 karakter penutup ('\0')
+    if (encodedIdx + 3 >= maxLen - 1) {
+      Serial.println(F("Buffer overflow, string cut!"));
+      break; 
+    }
+
+    uint8_t c = (uint8_t)str[i];
+
+    // Menurut RFC 3986, huruf, angka, dan 4 simbol ini tidak boleh di-encode
+    if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') {
+      encodedStr[encodedIdx++] = c;
+    } else { // Sisanya (termasuk spasi dan simbol unik), ubah ke format %HEX
+      snprintf(&encodedStr[encodedIdx], 4, "%%%02X", c);
+      encodedIdx += 3;
+    }
+  }
+
+  // Null Terminator
+  encodedStr[encodedIdx] = '\0';
+}
+
+void sendMessageToTelegram(const char *message) {
+  char encodedMsg[1024];
+  urlEncode(message, encodedMsg, sizeof(encodedMsg));
+
+  char apiPath[1536];
+  snprintf(apiPath, sizeof(apiPath),
+           "/bot%s/sendMessage?chat_id=%s&text=%s",
+           TELEGRAM_BOT_API_TOKEN, CHAT_ID, encodedMsg);
+  
+  Serial.println(F("Trying request to:"));
+  Serial.print(F("https://api.telegram.org"));
+  Serial.println(apiPath);
+
+  if (xSemaphoreTake(modemMutex, portMAX_DELAY) == pdTRUE) {
+    HttpClient http(secureCellularClient, "api.telegram.org", 443);
+    http.connectionKeepAlive();
+    http.setHttpResponseTimeout(5000);
+
+    int result = http.get(apiPath);
+
+    Serial.print(F("----------------\r\nGET result code: "));
+    Serial.println(result);
+
+    int httpResponseStatusCode = http.responseStatusCode();
+
+    if (httpResponseStatusCode > 0) {
+      Serial.print(F("HTTP response status code: "));
+      Serial.println(httpResponseStatusCode);
+
+      String response = http.responseBody();
+
+      Serial.println(F("Server response:"));
+      Serial.println(response);
+    } else {
+      Serial.print(F("HTTP error code: "));
+      Serial.println(httpResponseStatusCode);
+
+      network4GState = false; // Kalau gagal request
+    }
+
+    http.stop();
+
+    /* if (secureCellularClient.connect("api.telegram.org", 443)) {
+      Serial.print("connected=");
+      Serial.println(secureCellularClient.connected());
+      Serial.print("available=");
+      Serial.println(secureCellularClient.available());
+      
+      secureCellularClient.print(
+        String("GET ") + apiPath + " HTTP/1.1\r\n"
+        "Host: api.telegram.org\r\n\r\n"
+      );
+
+      uint32_t start = millis();
+
+      while (millis() - start < 10000) {
+        int avail = secureCellularClient.available();
+
+        if (avail > 0) {
+          Serial.print("avail=");
+          Serial.println(avail);
+        }
+
+        while (secureCellularClient.available()) {
+          char c = secureCellularClient.read();
+          Serial.write(c);
+          start = millis();
+        }
+
+        if (!secureCellularClient.connected()) {
+          Serial.println("DISCONNECTED");
+          break;
+        }
+
+        delay(100);
+      }
+
+      secureCellularClient.stop();
+    } */
+
+    xSemaphoreGive(modemMutex);
+  }
+}
+
+void buildJsonPayload(char *outputBuffer, size_t maxLen, const char *nodeName, float accDyn, float staLtaRatio, float roll, float pitch, float gyroX, float gyroY, float gyroZ) {
+  JsonDocument json;
+  JsonObject gatewayData = json[nodeName].add<JsonObject>();
+
+  gatewayData["acc_dyn"] = round(accDyn * 100.0f) / 100.0f;
+  gatewayData["sta_lta_ratio"] = round(staLtaRatio * 100.0f) / 100.0f;
+  gatewayData["roll"] = round(roll * 100.0f) / 100.0f;
+  gatewayData["pitch"] = round(pitch * 100.0f) / 100.0f;
+  gatewayData["gyro_x"] = round(gyroX * 100.0f) / 100.0f;
+  gatewayData["gyro_y"] = round(gyroY * 100.0f) / 100.0f;
+  gatewayData["gyro_z"] = round(gyroZ * 100.0f) / 100.0f;
+
+  serializeJson(json, outputBuffer, maxLen);
+}
+
+void mqttPublishToThingsBoard(const char *jsonPayload) {
+  if (xSemaphoreTake(modemMutex, portMAX_DELAY) == pdTRUE) {
+    Serial.println(F("----------------\r\nPublish:"));
+    Serial.println(jsonPayload);
+
+    // Cek apakah 4G LTE dan MQTT masih terhubung
+    if (network4GState && mqttClient.connected()) {
+        if (!mqttClient.publish(MQTT_TOPIC_GATEWAY_TELE_PUB, jsonPayload)) {
+          Serial.println(F("Failed to publish! 4G LTE disconnected!"));
+
+          network4GState = false;
+        }
+    } else {
+      Serial.println(F("Failed to publish! 4G LTE or MQTT Broker disconnected!"));
+    }
+
+    xSemaphoreGive(modemMutex);
+  }
 }
 
 struct NodeCooldown {
@@ -743,7 +879,7 @@ bool evaluateSafetyThresholds(const char *nodeName, float staLtaRatio, float rol
 // RTOS Core 0 untuk menangani pengiriman pesan ke telegram
 void telegramTask(void *pvParameters) {
   for (;;) { // Looping abadi khusus Core 0
-    if (WiFi.status() == WL_CONNECTED) { // Kalau terhubung ke internet
+    if (network4GState) { // Kalau terhubung ke internet
       char localAlertEarthquakeNodes[256] = "";
       char localDangerAngleNodes[256] = "";
       char localAlertAngleNodes[256] = "";

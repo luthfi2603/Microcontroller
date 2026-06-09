@@ -53,3 +53,5 @@ release
 
 # Secrets file
 secrets.h
+HTTP_Response.txt
+Log_AT_Command.txt

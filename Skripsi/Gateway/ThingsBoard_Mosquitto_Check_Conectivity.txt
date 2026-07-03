@@ -1,0 +1,5 @@
+// Yang benar
+mosquitto_pub -d -q 1 -h demo.thingsboard.io -p 1883 -t v1/gateway/telemetry -u "ACCESS_TOKEN" -m "{Gateway:[{acc_dyn:0,sta_lta_ratio:0,roll:0,pitch:0,gyro_x:0,gyro_y:0,gyro_z:0}],Node1:[{acc_dyn:0,sta_lta_ratio:0,roll:0,pitch:0,gyro_x:0,gyro_y:0,gyro_z:0}]}"
+
+// Salah, harus pakai [] di value nya
+mosquitto_pub -d -q 1 -h demo.thingsboard.io -p 1883 -t v1/gateway/telemetry -u "ACCESS_TOKEN" -m "{Gateway:{acc_dyn:0,sta_lta_ratio:0,roll:0,pitch:0,gyro_x:0,gyro_y:0,gyro_z:0},Node1:{acc_dyn:0,sta_lta_ratio:0,roll:0,pitch:0,gyro_x:0,gyro_y:0,gyro_z:0}}"

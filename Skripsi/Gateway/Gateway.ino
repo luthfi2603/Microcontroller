@@ -8,11 +8,16 @@
 #include <ArduinoHttpClient.h>
 #include <PubSubClient.h>
 #include <Wire.h>
+#include <Time.h>
 #include <RH_RF95.h>
 #include <RHReliableDatagram.h>
 #include "secrets.h"
 
 // Deklarasi variabel global
+/* constexpr const char *NTP_server = "id.pool.ntp.org";
+constexpr const long GMT_OFFSET_SEC = 7 * 3600; // 7 Jam dikali 3600 detik
+constexpr const int DAYLIGHT_OFFSET_SEC = 0; // Di Indonesia tidak ada musim panas */
+
 constexpr const uint8_t RXD2 = 16;
 constexpr const uint8_t TXD2 = 17;
 constexpr const uint16_t NETWORK_4G_RECONNECT_INTERVAL = 5000; // 5 s
@@ -57,6 +62,8 @@ SemaphoreHandle_t modemMutex;
 // Prototipe fungsi
 void init4G();
 void initLoRa();
+void initTime();
+uint64_t getCurrentTimestamp(char *outputBuffer, size_t maxLen);
 void initMPU();
 void calculateIMUError();
 void checkMPUConnectivity();
@@ -82,6 +89,9 @@ void setup() {
 
   // Inisialisasi LoRa SX1276
   initLoRa();
+
+  // Inisialisasi unix time
+  initTime();
 
   // Inisialisasi sensor MPU-6050
   initMPU();
@@ -210,6 +220,7 @@ void loop() {
 
       // Ambil nilai RSSI (Kekuatan Sinyal)
       int16_t rssi = rf95.lastRssi();
+      int snr = rf95.lastSNR();
 
       Serial.print(F("----------------\r\nMessage received from ID: "));
       Serial.println(fromAddress);
@@ -218,8 +229,10 @@ void loop() {
       Serial.print(F("RSSI: "));
       Serial.print(rssi);
       Serial.println(F(" dBm"));
+      Serial.print(F("SNR: "));
+      Serial.print(snr);
+      Serial.println(F(" dB"));
       Serial.println(F("Automatically send ACK reply to sending node..."));
-      Serial.println(F("LoRa starting to listen again..."));
 
       // Parsing JSON string
       JsonDocument json;
@@ -234,6 +247,8 @@ void loop() {
 
         mqttPublishToThingsBoard(loRaPayload);
       }
+
+      Serial.println(F("LoRa starting to listen again..."));
     }
   }
 
@@ -393,6 +408,18 @@ void loop() {
   checkMPUConnectivity();
 }
 
+/* void loop() {
+  char timeString[32];
+  uint64_t unixTime = getCurrentTimestamp(timeString, sizeof(timeString));
+
+  Serial.print(F("Unix time: "));
+  Serial.println(unixTime);
+  Serial.print(F("Current timestamp: "));
+  Serial.println(timeString);
+
+  vTaskDelay(100 / portTICK_PERIOD_MS);
+} */
+
 void init4G() {
   Serial.println(F("\r\nInitializing 4G LTE modem..."));
 
@@ -463,6 +490,146 @@ void initLoRa() {
   rf95.setTxPower(5, false);
   
   Serial.println(F("LoRa starting to listen..."));
+}
+
+/* void initTime() {
+  // Meminta waktu dari server internet
+  Serial.println(F("----------------\r\nWaiting for time synchronization..."));
+  configTime(GMT_OFFSET_SEC, DAYLIGHT_OFFSET_SEC, NTP_server);
+
+  // Wadah untuk menyimpan data waktu
+  struct tm timeInfo;
+
+  // Cek apakah waktu sudah berhasil didapatkan
+  Serial.print(F("Getting local time."));
+  while (!getLocalTime(&timeInfo)) {
+    Serial.print(F("."));
+  }
+  Serial.println(F("\r\nLocal time is obtained!"));
+
+  // Dapatkan waktu dari sistem ESP32 secara lengkap (beserta sisa mikrodetik)
+  struct timeval tv;
+  gettimeofday(&tv, NULL);
+  // Ubah tipe datanya menjadi 64-bit (uint64_t) dan rakit menjadi milidetik
+  // (tv.tv_sec adalah detik, tv.tv_usec adalah mikrodetik)
+  uint64_t unixTime = (tv.tv_sec * 1000LL) + (tv.tv_usec * 0.001);
+  // Masukkan ke JSON untuk dikirim ke node sebelahnya
+  Serial.print(F("Unix time: "));
+  Serial.println(unixTime);
+  // Tampilkan waktu ke Serial Monitor dengan format lengkap
+  Serial.print(F("Current timestamp: "));
+  Serial.println(&timeInfo, "%A, %d %B %Y %H:%M:%S");
+} */
+
+void initTime() {
+  Serial.println(F("----------------\r\nWaiting for cellular time synchronization (NITZ)..."));
+
+  int year = 0, month = 0, day = 0, hour = 0, min = 0, sec = 0;
+  float timeZone = 0;
+  uint8_t retry = 0;
+  bool timeSynced = false;
+
+  Serial.print(F("Getting network time"));
+  
+  // Looping maksimal 5 kali (jeda 2 detik) agar tidak Infinite Loop jika sinyal jelek
+  while (retry < 5) {
+    // Tarik waktu dari menara BTS via AT+CCLK? bawaan TinyGSM
+    if (modem.getNetworkTime(&year, &month, &day, &hour, &min, &sec, &timeZone)) {
+      timeSynced = true;
+      break;
+    }
+    Serial.print(F("."));
+    delay(2000);
+    retry++;
+  }
+
+  if (timeSynced) {
+    Serial.println(F("\r\nCellular time is obtained!"));
+
+    // TinyGSM kadang memberikan tahun dalam 2 digit (misal: 26 untuk 2026)
+    if (year < 2000) year += 2000;
+
+    // Rakit ke dalam struct tm standar C/C++
+    struct tm timeInfo = {0};
+    timeInfo.tm_year = year - 1900; // Standar C: Tahun sejak 1900
+    timeInfo.tm_mon  = month - 1;   // Standar C: Bulan dimulai dari 0 (Jan - Des)
+    timeInfo.tm_mday = day;
+    timeInfo.tm_hour = hour;
+    timeInfo.tm_min  = min;
+    timeInfo.tm_sec  = sec;
+
+    // Atur zona waktu ESP32 agar perhitungan unix time akurat
+    setenv("TZ", "WIB-7", 1);
+    tzset();
+
+    // Konversi format kalender menjadi angka unix time (detik sejak 1 Januari 1970)
+    time_t epoch = mktime(&timeInfo);
+
+    // Sinkronisasi waktu ini ke dalam jam internal (RTC) ESP32
+    struct timeval tv;
+    tv.tv_sec = epoch;
+    tv.tv_usec = 0; // NITZ tidak memberikan mikrodetik, jadi atur ke 0
+    settimeofday(&tv, NULL);
+
+    // --- Dari titik ini, jam internal ESP32 sudah berjalan akurat secara mandiri ---
+
+    // Konversi ke format milidetik
+    uint64_t unixTime = (uint64_t)epoch * 1000ULL;
+    
+    Serial.print(F("Unix time: "));
+    Serial.println(unixTime);
+
+    // Tampilkan format ke Serial Monitor
+    Serial.print(F("Current timestamp: "));
+    Serial.println(&timeInfo, "%A, %d %B %Y %H:%M:%S");
+
+    char jsonUnixTime[20];
+    snprintf(jsonUnixTime, sizeof(jsonUnixTime), "{\"t\":%llu}", unixTime);
+
+    Serial.println(F("Transmit message to ID: 1"));
+    Serial.println(F("Message:"));
+    Serial.println(jsonUnixTime);
+
+    manager.setRetries(0);
+    manager.setTimeout(1000);
+
+    Serial.print(F("Sending time to Node 1"));
+    while (!manager.sendtoWait((uint8_t*)jsonUnixTime, sizeof(jsonUnixTime), 1)) {
+      snprintf(jsonUnixTime, sizeof(jsonUnixTime), "{\"t\":%llu}", getCurrentTimestamp(NULL, 0));
+
+      Serial.print(F("."));
+    }
+    Serial.println(F("\r\nTransmission success! Validated by receiver!"));
+  } else {
+    // Jalur penyelamatan jika sinyal ke BTS gagal total
+    Serial.println(F("\r\nFailed to get network time! System will proceed with unix time 0"));
+  }
+}
+
+uint64_t getCurrentTimestamp(char *outputBuffer, size_t maxLen) {
+  struct timeval tv;
+  gettimeofday(&tv, NULL);
+  
+  // Hitung unix time dalam milidetik
+  uint64_t unixTimeMillis = ((uint64_t)tv.tv_sec * 1000ULL) + (tv.tv_usec / 1000);
+  
+  // Jika wadah teks disediakan (tidak NULL), isi wadahnya dengan format manusia
+  if (outputBuffer != NULL && maxLen > 0) {
+    struct tm runningTimeInfo;
+    localtime_r(&tv.tv_sec, &runningTimeInfo); // Terjemahkan ke format kalender
+
+    snprintf(outputBuffer, maxLen, "%04d-%02d-%02d %02d:%02d:%02d.%03ld",
+             runningTimeInfo.tm_year + 1900, 
+             runningTimeInfo.tm_mon + 1, 
+             runningTimeInfo.tm_mday,
+             runningTimeInfo.tm_hour, 
+             runningTimeInfo.tm_min, 
+             runningTimeInfo.tm_sec,
+             (long)tv.tv_usec / 1000);
+  }
+
+  // Kembalikan angka unix time
+  return unixTimeMillis;
 }
 
 void initMPU() {
@@ -732,13 +899,13 @@ void buildJsonPayload(char *outputBuffer, size_t maxLen, const char *nodeName, f
   JsonDocument json;
   JsonObject gatewayData = json[nodeName].add<JsonObject>();
 
-  gatewayData["acc_dyn"] = round(accDyn * 100.0f) / 100.0f;
-  gatewayData["sta_lta_ratio"] = round(staLtaRatio * 100.0f) / 100.0f;
-  gatewayData["roll"] = round(roll * 100.0f) / 100.0f;
-  gatewayData["pitch"] = round(pitch * 100.0f) / 100.0f;
-  gatewayData["gyro_x"] = round(gyroX * 100.0f) / 100.0f;
-  gatewayData["gyro_y"] = round(gyroY * 100.0f) / 100.0f;
-  gatewayData["gyro_z"] = round(gyroZ * 100.0f) / 100.0f;
+  gatewayData["acc_dyn"] = round(accDyn * 100.0f) * 0.01f;
+  gatewayData["sta_lta_ratio"] = round(staLtaRatio * 100.0f) * 0.01f;
+  gatewayData["roll"] = round(roll * 100.0f) * 0.01f;
+  gatewayData["pitch"] = round(pitch * 100.0f) * 0.01f;
+  gatewayData["gyro_x"] = round(gyroX * 100.0f) * 0.01f;
+  gatewayData["gyro_y"] = round(gyroY * 100.0f) * 0.01f;
+  gatewayData["gyro_z"] = round(gyroZ * 100.0f) * 0.01f;
 
   serializeJson(json, outputBuffer, maxLen);
 }
@@ -750,11 +917,19 @@ void mqttPublishToThingsBoard(const char *jsonPayload) {
 
     // Cek apakah 4G LTE dan MQTT masih terhubung
     if (network4GState && mqttClient.connected()) {
-        if (!mqttClient.publish(MQTT_TOPIC_GATEWAY_TELE_PUB, jsonPayload)) {
-          Serial.println(F("Failed to publish! 4G LTE disconnected!"));
+      if (!mqttClient.publish(MQTT_TOPIC_GATEWAY_TELE_PUB, jsonPayload)) {
+        Serial.println(F("Failed to publish! 4G LTE disconnected!"));
 
-          network4GState = false;
-        }
+        network4GState = false;
+      }
+
+      char timeString[32];
+      uint64_t unixTime = getCurrentTimestamp(timeString, sizeof(timeString));
+
+      Serial.print(F("Unix time: "));
+      Serial.println(unixTime);
+      Serial.print(F("Current timestamp: "));
+      Serial.println(timeString);
     } else {
       Serial.println(F("Failed to publish! 4G LTE or MQTT Broker disconnected!"));
     }

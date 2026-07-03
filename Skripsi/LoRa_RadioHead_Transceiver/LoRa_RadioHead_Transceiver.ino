@@ -14,8 +14,11 @@ constexpr const uint8_t LORA_IRQ = 4;
 constexpr const uint8_t LORA_RST = 26;
 constexpr const uint16_t LORA_CHECK_INTERVAL = 5000; // 5 s
 constexpr const char *NODE_NAME = "Node 1";
+constexpr const char *NODE_NAME_LATENCY = "Node 2";
 constexpr const uint8_t NODE_ID = 1; // Alamat ID node ini
 constexpr const uint8_t RECEIVER_ID = 0; // Alamat ID tujuan
+constexpr const uint8_t PREV_NODE_ID = 2; // Alamat ID node sebelumnya
+constexpr const bool LAST_NODE = false; // Apakah node terakhir
 
 constexpr const float RAD_TO_DEG_F = 57.29577951f; // 180 / PI(3.14)
 constexpr const float ACCEL_SCALE = 1.0f / 16384.0f; // / 16384
@@ -32,6 +35,8 @@ RHReliableDatagram manager(rf95, NODE_ID);
 
 // Prototipe fungsi
 void initLoRa();
+void initTime();
+uint64_t getCurrentTimestamp(char *outputBuffer, size_t maxLen);
 void initMPU();
 void calculateIMUError();
 bool evaluateSafetyThresholds(const char *nodeName, float staLtaRatio, float roll, float pitch, float gyroX, float gyroY, float gyroZ);
@@ -44,6 +49,9 @@ void setup() {
 
   // Inisialisasi LoRa SX1276
   initLoRa();
+
+  // Inisialisasi unix time
+  initTime();
 
   // Inisialisasi sensor MPU-6050
   initMPU();
@@ -104,6 +112,7 @@ void loop() {
 
       // Ambil nilai RSSI (Kekuatan Sinyal)
       int16_t rssi = rf95.lastRssi();
+      int snr = rf95.lastSNR();
 
       Serial.print(F("----------------\r\nMessage received from ID: "));
       Serial.println(fromAddress);
@@ -112,6 +121,9 @@ void loop() {
       Serial.print(F("RSSI: "));
       Serial.print(rssi);
       Serial.println(F(" dBm"));
+      Serial.print(F("SNR: "));
+      Serial.print(snr);
+      Serial.println(F(" dB"));
       Serial.println(F("Automatically send ACK reply to sending node..."));
 
       // Parsing JSON string
@@ -122,6 +134,24 @@ void loop() {
         Serial.print(F("Failed to parsing JSON LoRa!, Error: "));
         Serial.println(error.f_str());
       } else {
+        JsonObject root = json.as<JsonObject>();
+
+        for (JsonPair kv : root) {
+          const char *nodeName = kv.key().c_str(); // Mengambil key atau nama "Node 1" atau "Node 2"
+
+          if (strcmp(nodeName, NODE_NAME_LATENCY) == 0) {
+            JsonArray dataArray = kv.value().as<JsonArray>();
+            JsonObject data = dataArray[0];
+
+            uint64_t unixTime = data["t"];
+
+            Serial.print(F("Latency from previous node: "));
+            uint64_t latency = getCurrentTimestamp(NULL, 0) - unixTime;
+            Serial.print(latency);
+            Serial.println(F(" ms"));
+          }
+        }
+
         strncpy(pendingLoRaPayload, loRaPayload, sizeof(pendingLoRaPayload));
         hasPendingLoRaData = true; // Angkat bendera
       }
@@ -233,13 +263,13 @@ void loop() {
         deserializeJson(json, pendingLoRaPayload);
         JsonObject nodeData = json[NODE_NAME].add<JsonObject>();
 
-        nodeData["acc_dyn"] = round(accDyn * 100.0f) / 100.0f;
-        nodeData["sta_lta_ratio"] = round(staLtaRatio * 100.0f) / 100.0f;
-        nodeData["roll"] = round(roll * 100.0f) / 100.0f;
-        nodeData["pitch"] = round(pitch * 100.0f) / 100.0f;
-        nodeData["gyro_x"] = round(gyroX * 100.0f) / 100.0f;
-        nodeData["gyro_y"] = round(gyroY * 100.0f) / 100.0f;
-        nodeData["gyro_z"] = round(gyroZ * 100.0f) / 100.0f;
+        nodeData["acc_dyn"] = round(accDyn * 100.0f) * 0.01f;
+        nodeData["sta_lta_ratio"] = round(staLtaRatio * 100.0f) * 0.01f;
+        nodeData["roll"] = round(roll * 100.0f) * 0.01f;
+        nodeData["pitch"] = round(pitch * 100.0f) * 0.01f;
+        nodeData["gyro_x"] = round(gyroX * 100.0f) * 0.01f;
+        nodeData["gyro_y"] = round(gyroY * 100.0f) * 0.01f;
+        nodeData["gyro_z"] = round(gyroZ * 100.0f) * 0.01f;
 
         // Cek secara virtual ukuran payload jika digabung
         size_t estimatedSize = measureJson(json);
@@ -331,6 +361,122 @@ void initLoRa() {
   manager.setTimeout(200); // Waktu tunggu ACK dalam milidetik (default = 200)
 
   Serial.println(F("LoRa starting to listen..."));
+}
+
+void initTime() {
+  uint64_t unixTime = 0;
+  bool timeSynced = false;
+
+  Serial.println(F("----------------\r\nGetting network time..."));
+
+  while (!timeSynced) {
+    if (manager.available()) {
+      // Siapkan wadah (buffer) untuk menampung pesan yang masuk
+      uint8_t dataBuffer[RH_RF95_MAX_MESSAGE_LEN + 1];  // RH_RF95_MAX_MESSAGE_LEN adalah batas bawaan dari library (biasanya 251 byte)
+      uint8_t dataLength = RH_RF95_MAX_MESSAGE_LEN;
+
+      // Tangkap data dan otomatis kirimkan tanda terima (ACK) ke pengirim
+      if (manager.recvfromAck(dataBuffer, &dataLength)) {
+        dataBuffer[dataLength] = '\0';
+        const char *timePayload = (char *)dataBuffer;  // Byte jadi c-string
+
+        Serial.println(F("Message received:"));
+        Serial.println(timePayload);
+        Serial.println(F("Automatically send ACK reply to sending node..."));
+
+        // Parsing JSON string
+        JsonDocument json;
+        DeserializationError error = deserializeJson(json, timePayload);
+
+        if (error) {
+          Serial.print(F("Failed to parsing JSON LoRa!, Error: "));
+          Serial.println(error.f_str());
+        } else {
+          if (manager.headerFrom() == RECEIVER_ID) {
+            unixTime = json["t"].as<uint64_t>() + 52ULL;
+  
+            Serial.print(F("Unix time: "));
+            Serial.println(unixTime);
+
+            // Atur zona waktu ESP32 agar perhitungan unix time akurat
+            setenv("TZ", "WIB-7", 1);
+            tzset();
+  
+            struct timeval tv;
+            tv.tv_sec = unixTime / 1000ULL;
+            tv.tv_usec = (unixTime % 1000ULL) * 1000ULL;
+  
+            settimeofday(&tv, NULL);
+  
+            Serial.println(F("RTC synchronized successfully!"));
+            timeSynced = true;
+          } else {
+            Serial.println(F("Not from next node!"));
+          }
+        }
+      }
+    }
+  }
+
+  // --- Dari titik ini, jam internal ESP32 sudah berjalan akurat secara mandiri ---
+
+  // Tampilkan format ke Serial Monitor
+  char timeInfo[32];
+  getCurrentTimestamp(timeInfo, sizeof(timeInfo));
+  Serial.print(F("Current timestamp: "));
+  Serial.println(timeInfo);
+
+  if (!LAST_NODE) {
+    char jsonUnixTime[20];
+    snprintf(jsonUnixTime, sizeof(jsonUnixTime), "{\"t\":%llu}", unixTime);
+  
+    Serial.print(F("Transmit message to ID: "));
+    Serial.println(PREV_NODE_ID);
+    Serial.println(F("Message:"));
+    Serial.println(jsonUnixTime);
+  
+    manager.setRetries(0);
+    manager.setTimeout(1000);
+  
+    Serial.print(F("Sending time to Node "));
+    Serial.print(PREV_NODE_ID);
+    while (!manager.sendtoWait((uint8_t *)jsonUnixTime, sizeof(jsonUnixTime), PREV_NODE_ID)) {
+      snprintf(jsonUnixTime, sizeof(jsonUnixTime), "{\"t\":%llu}", getCurrentTimestamp(NULL, 0));
+  
+      Serial.print(F("."));
+    }
+  
+    manager.setRetries(3);
+    manager.setTimeout(200);
+  
+    Serial.println(F("\r\nTransmission success! Validated by receiver!"));
+  }
+}
+
+uint64_t getCurrentTimestamp(char *outputBuffer, size_t maxLen) {
+  struct timeval tv;
+  gettimeofday(&tv, NULL);
+
+  // Hitung Unix Timestamp dalam milidetik
+  uint64_t unixTimeMillis = ((uint64_t)tv.tv_sec * 1000ULL) + (tv.tv_usec / 1000);
+
+  // Jika wadah teks disediakan (tidak NULL), isi wadahnya dengan format manusia
+  if (outputBuffer != NULL && maxLen > 0) {
+    struct tm runningTimeInfo;
+    localtime_r(&tv.tv_sec, &runningTimeInfo);  // Terjemahkan ke format kalender
+
+    snprintf(outputBuffer, maxLen, "%04d-%02d-%02d %02d:%02d:%02d.%03ld",
+             runningTimeInfo.tm_year + 1900,
+             runningTimeInfo.tm_mon + 1,
+             runningTimeInfo.tm_mday,
+             runningTimeInfo.tm_hour,
+             runningTimeInfo.tm_min,
+             runningTimeInfo.tm_sec,
+             (long)tv.tv_usec / 1000);
+  }
+
+  // Kembalikan angka Unix Time
+  return unixTimeMillis;
 }
 
 void initMPU() {
@@ -484,13 +630,14 @@ void buildJsonPayload(char *outputBuffer, size_t maxLen, const char *nodeName, f
   JsonDocument json;
   JsonObject nodeData = json[nodeName].add<JsonObject>();
 
-  nodeData["acc_dyn"] = round(accDyn * 100.0f) / 100.0f;
-  nodeData["sta_lta_ratio"] = round(staLtaRatio * 100.0f) / 100.0f;
-  nodeData["roll"] = round(roll * 100.0f) / 100.0f;
-  nodeData["pitch"] = round(pitch * 100.0f) / 100.0f;
-  nodeData["gyro_x"] = round(gyroX * 100.0f) / 100.0f;
-  nodeData["gyro_y"] = round(gyroY * 100.0f) / 100.0f;
-  nodeData["gyro_z"] = round(gyroZ * 100.0f) / 100.0f;
+  nodeData["acc_dyn"] = round(accDyn * 100.0f) * 0.01f;
+  nodeData["sta_lta_ratio"] = round(staLtaRatio * 100.0f) * 0.01f;
+  nodeData["roll"] = round(roll * 100.0f) * 0.01f;
+  nodeData["pitch"] = round(pitch * 100.0f) * 0.01f;
+  nodeData["gyro_x"] = round(gyroX * 100.0f) * 0.01f;
+  nodeData["gyro_y"] = round(gyroY * 100.0f) * 0.01f;
+  nodeData["gyro_z"] = round(gyroZ * 100.0f) * 0.01f;
+  nodeData["t"] = getCurrentTimestamp(NULL, 0);
 
   serializeJson(json, outputBuffer, maxLen);
 }
@@ -509,6 +656,14 @@ void loRaTransmit(const char *jsonPayload) {
   Serial.println(RECEIVER_ID);
   Serial.println(F("Message:"));
   Serial.println(jsonPayload);
+
+  char timeString[32];
+  uint64_t unixTime = getCurrentTimestamp(timeString, sizeof(timeString));
+
+  Serial.print(F("Unix time: "));
+  Serial.println(unixTime);
+  Serial.print(F("Current timestamp: "));
+  Serial.println(timeString);
 
   // Kirim data dan tunggu tanda terima (ACK)
   // Fungsi sendtoWait akan me-return true hanya jika ACK berhasil diterima dari penerima

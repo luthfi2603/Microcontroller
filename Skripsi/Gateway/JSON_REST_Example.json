@@ -54,7 +54,7 @@
     }
   },
   {
-    "request": "https://api.telegram.org/botAPI_TOKEN/sendMessage?chat_id=-5173915349&text=Halo%20dari%20ESP32%21%0A%E3%83%95%E3%83%AA%E3%83%BC%E3%83%8A%E3%81%A1%E3%82%83%E3%82%93%E3%81%A8%E3%83%93%E3%83%93%E3%82%A2%E3%83%B3%E3%81%8F%E3%82%93"
+    "request": "https://api.telegram.org/botAPI_TOKEN/sendMessage?chat_id=CHAT_ID&text=Halo%20dari%20ESP32%21%0A%E3%83%95%E3%83%AA%E3%83%BC%E3%83%8A%E3%81%A1%E3%82%83%E3%82%93%E3%81%A8%E3%83%93%E3%83%93%E3%82%A2%E3%83%B3%E3%81%8F%E3%82%93"
   },
   {
     "ok": true,
@@ -86,7 +86,7 @@
   {
     "vibration": {
       "acc_dyn": 1,
-      "ratio_sta_lta": 1
+      "sta_lta_ratio": 1
     },
     "angle": {
       "roll": 1,
@@ -103,7 +103,7 @@
     "Gateway": [
       {
         "acc_dyn": 0,
-        "ratio_sta_lta": 0,
+        "sta_lta_ratio": 0,
         "roll": 0,
         "pitch": 0,
         "gyro_x": 0,

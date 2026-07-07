@@ -1,3 +1,4 @@
+#include <Arduino.h>
 // #define TINY_GSM_DEBUG Serial
 #define TINY_GSM_YIELD() { delay(2); }
 #define TINY_GSM_RX_BUFFER 2048
@@ -16,7 +17,9 @@
 // Deklarasi variabel global
 /* constexpr const char *NTP_server = "id.pool.ntp.org";
 constexpr const long GMT_OFFSET_SEC = 7 * 3600; // 7 Jam dikali 3600 detik
-constexpr const int DAYLIGHT_OFFSET_SEC = 0; // Di Indonesia tidak ada musim panas */
+constexpr const int DAYLIGHT_OFFSET_SEC = 0; // Di Indonesia tidak ada musim panas
+
+constexpr const uint8_t SWITCH_PIN = 13; */
 
 constexpr const uint8_t RXD2 = 16;
 constexpr const uint8_t TXD2 = 17;
@@ -47,6 +50,17 @@ float accErrorX, accErrorY, gyroErrorX, gyroErrorY, gyroErrorZ;
 bool mpuConnectionState, lastMpuConnectionState = true;
 uint32_t currentGyroTime;
 volatile bool network4GState = true;
+
+/* // volatile untuk CPU cek langsung ke SRAM
+volatile bool receivedSwitchFlag = false;
+
+// Untuk ISR
+#if defined(ESP8266) || defined(ESP32)
+  IRAM_ATTR
+#endif
+void setSwitchFlag(void) {
+  receivedSwitchFlag = true;
+} */
 
 /* StreamDebugger debugger(Serial2, Serial);
 TinyGsm modem(debugger); */
@@ -106,6 +120,15 @@ void setup() {
   // Membuat gembok RTOS
   alertMutex = xSemaphoreCreateMutex();
   modemMutex = xSemaphoreCreateMutex();
+
+  /* // Kalibrasi waktu
+  pinMode(SWITCH_PIN, INPUT_PULLUP);
+
+  attachInterrupt(
+    digitalPinToInterrupt(SWITCH_PIN),
+    setSwitchFlag,
+    FALLING
+  ); */
 
   // Bangunkan Core 0
   xTaskCreatePinnedToCore(
@@ -206,7 +229,7 @@ void loop() {
   static char pendingLoRaPayload[252] = ""; // Wadah sementara untuk string JSON LoRa
   static bool hasPendingLoRaData = false; // Bendera penanda ada data LoRa yang antre
 
-  // Receive data LoRa
+  // Receive LoRa data
   if (manager.available()) {
     // Siapkan wadah (buffer) untuk menampung pesan yang masuk
     uint8_t dataBuffer[RH_RF95_MAX_MESSAGE_LEN + 1]; // RH_RF95_MAX_MESSAGE_LEN adalah batas bawaan dari library (biasanya 251 byte)
@@ -232,7 +255,6 @@ void loop() {
       Serial.print(F("SNR: "));
       Serial.print(snr);
       Serial.println(F(" dB"));
-      Serial.println(F("Automatically send ACK reply to sending node..."));
 
       // Parsing JSON string
       JsonDocument json;
@@ -242,12 +264,30 @@ void loop() {
         Serial.print(F("Failed to parsing JSON LoRa!, Error: "));
         Serial.println(error.f_str());
       } else {
+        JsonObject root = json.as<JsonObject>();
+
+        for (JsonPair kv : root) {
+          const char *nodeName = kv.key().c_str(); // Mengambil key atau nama "Node 1" atau "Node 2"
+          JsonArray dataArray = kv.value().as<JsonArray>();
+          JsonObject data = dataArray[0];
+
+          uint64_t unixTime = data["t"];
+
+          Serial.print(F("Latency from "));
+          Serial.print(nodeName);
+          Serial.print(F(": "));
+          uint16_t latency = getCurrentTimestamp(NULL, 0) - unixTime;
+          Serial.print(latency);
+          Serial.println(F(" ms"));
+        }
+
         strncpy(pendingLoRaPayload, loRaPayload, sizeof(pendingLoRaPayload));
         hasPendingLoRaData = true; // Angkat bendera
 
         mqttPublishToThingsBoard(loRaPayload);
       }
 
+      Serial.println(F("Automatically send ACK reply to sending node..."));
       Serial.println(F("LoRa starting to listen again..."));
     }
   }
@@ -412,12 +452,21 @@ void loop() {
   char timeString[32];
   uint64_t unixTime = getCurrentTimestamp(timeString, sizeof(timeString));
 
-  Serial.print(F("Unix time: "));
+  /* Serial.print(F("Unix time: "));
   Serial.println(unixTime);
   Serial.print(F("Current timestamp: "));
   Serial.println(timeString);
 
-  vTaskDelay(100 / portTICK_PERIOD_MS);
+  vTaskDelay(100 / portTICK_PERIOD_MS); /
+
+  if (receivedSwitchFlag) {
+    receivedSwitchFlag = false;
+
+    Serial.print("----------------\r\nUnix time: ");
+    Serial.println(unixTime);
+    Serial.print(F("Current timestamp: "));
+    Serial.println(timeString);
+  }
 } */
 
 void init4G() {

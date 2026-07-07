@@ -4,6 +4,8 @@
 #include <RHReliableDatagram.h>
 
 // Deklarasi variabel global
+// constexpr const uint8_t SWITCH_PIN = 13;
+
 constexpr const uint8_t MPU_ADDRESS = 0x68; // MPU-6050 I2C address
 constexpr const uint8_t MPU_SAMPLING_INTERVAL = 10; // 10 ms
 
@@ -14,7 +16,7 @@ constexpr const uint8_t LORA_IRQ = 4;
 constexpr const uint8_t LORA_RST = 26;
 constexpr const uint16_t LORA_CHECK_INTERVAL = 5000; // 5 s
 constexpr const char *NODE_NAME = "Node 1";
-constexpr const char *NODE_NAME_LATENCY = "Node 2";
+constexpr const char *PREV_NODE_NAME = "Node 2";
 constexpr const uint8_t NODE_ID = 1; // Alamat ID node ini
 constexpr const uint8_t RECEIVER_ID = 0; // Alamat ID tujuan
 constexpr const uint8_t PREV_NODE_ID = 2; // Alamat ID node sebelumnya
@@ -29,6 +31,17 @@ constexpr const uint16_t LTA_WINDOW = 2000; // 20 detik (2000 sampel)
 float accErrorX, accErrorY, gyroErrorX, gyroErrorY, gyroErrorZ;
 bool mpuConnectionState, lastMpuConnectionState = true;
 uint32_t currentGyroTime;
+
+/* // volatile untuk CPU cek langsung ke SRAM
+volatile bool receivedSwitchFlag = false;
+
+// Untuk ISR
+#if defined(ESP8266) || defined(ESP32)
+  IRAM_ATTR
+#endif
+void setSwitchFlag(void) {
+  receivedSwitchFlag = true;
+} */
 
 RH_RF95 rf95(LORA_CS, LORA_IRQ);
 RHReliableDatagram manager(rf95, NODE_ID);
@@ -59,6 +72,15 @@ void setup() {
   // Hitung error sensor MPU-6050
   calculateIMUError();
   delay(20);
+
+  /* // Kalibrasi waktu
+  pinMode(SWITCH_PIN, INPUT_PULLUP);
+
+  attachInterrupt(
+    digitalPinToInterrupt(SWITCH_PIN),
+    setSwitchFlag,
+    FALLING
+  ); */
 
   currentGyroTime = millis();
 }
@@ -98,7 +120,7 @@ void loop() {
   static char pendingLoRaPayload[252] = ""; // Wadah sementara untuk string JSON LoRa
   static bool hasPendingLoRaData = false; // Bendera penanda ada data LoRa yang antre
 
-  // Receive data LoRa
+  // Receive LoRa data
   if (manager.available()) {
     // Siapkan wadah (buffer) untuk menampung pesan yang masuk
     uint8_t dataBuffer[RH_RF95_MAX_MESSAGE_LEN + 1]; // RH_RF95_MAX_MESSAGE_LEN adalah batas bawaan dari library (biasanya 251 byte)
@@ -124,7 +146,6 @@ void loop() {
       Serial.print(F("SNR: "));
       Serial.print(snr);
       Serial.println(F(" dB"));
-      Serial.println(F("Automatically send ACK reply to sending node..."));
 
       // Parsing JSON string
       JsonDocument json;
@@ -139,14 +160,14 @@ void loop() {
         for (JsonPair kv : root) {
           const char *nodeName = kv.key().c_str(); // Mengambil key atau nama "Node 1" atau "Node 2"
 
-          if (strcmp(nodeName, NODE_NAME_LATENCY) == 0) {
+          if (strcmp(nodeName, PREV_NODE_NAME) == 0) {
             JsonArray dataArray = kv.value().as<JsonArray>();
             JsonObject data = dataArray[0];
 
             uint64_t unixTime = data["t"];
 
             Serial.print(F("Latency from previous node: "));
-            uint64_t latency = getCurrentTimestamp(NULL, 0) - unixTime;
+            uint16_t latency = getCurrentTimestamp(NULL, 0) - unixTime;
             Serial.print(latency);
             Serial.println(F(" ms"));
           }
@@ -155,7 +176,8 @@ void loop() {
         strncpy(pendingLoRaPayload, loRaPayload, sizeof(pendingLoRaPayload));
         hasPendingLoRaData = true; // Angkat bendera
       }
-      
+
+      Serial.println(F("Automatically send ACK reply to sending node..."));
       Serial.println(F("LoRa starting to listen again..."));
     }
   }
@@ -327,6 +349,27 @@ void loop() {
   checkMPUConnectivity();
 }
 
+/* void loop() {
+  char timeString[32];
+  uint64_t unixTime = getCurrentTimestamp(timeString, sizeof(timeString));
+
+  /* Serial.print(F("Unix time: "));
+  Serial.println(unixTime);
+  Serial.print(F("Current timestamp: "));
+  Serial.println(timeString);
+
+  vTaskDelay(100 / portTICK_PERIOD_MS); /
+
+  if (receivedSwitchFlag) {
+    receivedSwitchFlag = false;
+
+    Serial.print("----------------\r\nUnix time: ");
+    Serial.println(unixTime);
+    Serial.print(F("Current timestamp: "));
+    Serial.println(timeString);
+  }
+} */
+
 void initLoRa() {
   Serial.println(F("\r\nInitializing LoRa with RadioHead..."));
 
@@ -393,7 +436,7 @@ void initTime() {
           Serial.println(error.f_str());
         } else {
           if (manager.headerFrom() == RECEIVER_ID) {
-            unixTime = json["t"].as<uint64_t>() + 52ULL;
+            unixTime = json["t"].as<uint64_t>() + 108ULL;
   
             Serial.print(F("Unix time: "));
             Serial.println(unixTime);

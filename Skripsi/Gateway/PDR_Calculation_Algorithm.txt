@@ -1,0 +1,111 @@
+1, 2, 5, 6, 7, 8, 1, 2, 4, 5
+
+// Skenario gak sempurna
+
+numberOfTxId[0] = [1]
+notiIdx = 1
+
+numberOfTxId[1] = [1, 2]
+notiIdx = 2
+
+...
+
+numberOfTxId[8] = [1, 2, 5, 6, 7, 8, 1, 2, 4]
+notiIdx = 9
+
+numberOfTxId[9] = [1, 2, 5, 6, 7, 8, 1, 2, 4, 5]
+if (nodeJitterPdrs[idx].notiIdx == JITTER_WINDOW) 9 == 9 true
+prevTxId = 1
+for 
+i = 0
+if (prevTxId > nodeJitterPdrs[idx].numberOfTxId[i] || i == JITTER_WINDOW)
+if 1 > 1 false
+prevTxId = nodeJitterPdrs[idx].numberOfTxId[i];
+prevTxId = 1
+
+i = 1
+if 1 > 2 false
+prevTxId = 2
+
+i = 2
+if 2 > 5 false
+prevTxId = 5
+
+i = 3
+if 5 > 6 false
+prevTxId = 6
+
+i = 4
+if 6 > 7 false
+prevTxId = 7
+
+i = 5
+if 7 > 8 false
+prevTxId = 8
+
+i = 6
+if 8 > 1 true
+pdr = 6 / (9 + 1) * 100
+pdr = 6 / 10 * 100
+pdr = 60% (benar)
+if 6 == 9 false
+else memmove([0], [6], ((9 - 6 + 1) * 1))
+else memmove([0], [6], 4) -> numberOfTxId[] = [1, 2, 4, 5, 7, 8, 1, 2, 4, 5]
+notiIdx = 9 - 6 = 3
+prevTxId = 1
+notiIdx = 3 + 1 = 4
+
+9, 3, 4, 5, 6, 7
+
+numberOfTxId[4] = [1, 2, 4, 5, 9, 8, 1, 2, 4, 5]
+notiIdx = 5
+
+numberOfTxId[5] = [1, 2, 4, 5, 9, 3, 1, 2, 4, 5]
+notiIdx = 6
+
+numberOfTxId[6] = [1, 2, 4, 5, 9, 3, 4, 2, 4, 5]
+notiIdx = 7
+
+numberOfTxId[7] = [1, 2, 4, 5, 9, 3, 4, 5, 4, 5]
+notiIdx = 8
+
+numberOfTxId[8] = [1, 2, 4, 5, 9, 3, 4, 5, 6, 5]
+notiIdx = 9
+
+numberOfTxId[9] = [1, 2, 4, 5, 9, 3, 4, 5, 6, 7]
+if (nodeJitterPdrs[idx].notiIdx == JITTER_WINDOW) 9 == 9 true
+prevTxId = 1
+for 
+i = 0
+if (prevTxId > nodeJitterPdrs[idx].numberOfTxId[i] || i == JITTER_WINDOW)
+if 1 > 1 false
+prevTxId = nodeJitterPdrs[idx].numberOfTxId[i];
+prevTxId = 1
+
+i = 1
+if 1 > 2 false
+prevTxId = 2
+
+i = 2
+if 2 > 4 false
+prevTxId = 4
+
+i = 3
+if 4 > 5 false
+prevTxId = 5
+
+i = 4
+if 5 > 9 false
+prevTxId = 9
+
+i = 5
+if 9 > 3 true
+pdr = 5 / (9 + 1) * 100
+pdr = 5 / 10 * 100
+pdr = 50% (benar)
+if 5 == 9 false
+else memmove([0], [5], ((9 - 5 + 1) * 1))
+else memmove([0], [5], 5) -> numberOfTxId[] = [3, 4, 5, 6, 7, 3, 4, 5, 6, 7]
+notiIdx = 9 - 5 = 4
+prevTxId = 1
+notiIdx = 4 + 1 = 5

@@ -1,4 +1,3 @@
-#include <Arduino.h>
 // #define TINY_GSM_DEBUG Serial
 #define TINY_GSM_YIELD() { delay(2); }
 #define TINY_GSM_RX_BUFFER 2048
@@ -39,12 +38,15 @@ constexpr const uint8_t LORA_IRQ = 4;
 constexpr const uint8_t LORA_RST = 26;
 constexpr const uint16_t LORA_CHECK_INTERVAL = 5000; // 5 s
 constexpr const uint8_t NODE_ID = 0; // Alamat ID node ini
+constexpr const uint8_t NODE_COUNT = 3; // Jumlah node
 
-constexpr const float RAD_TO_DEG_F = 57.29577951f; // 180 / PI(3.14)
-constexpr const float ACCEL_SCALE = 1.0f / 16384.0f; // / 16384
-constexpr const float GYRO_SCALE  = 1.0f / 131.0f; // / 131
+constexpr const float RAD_TO_DEG_F = 57.29577951F; // 180 / PI(3.14)
+constexpr const float ACCEL_SCALE = 1.0F / 16384.0F; // / 16384
+constexpr const float GYRO_SCALE  = 1.0F / 131.0F; // / 131
 constexpr const uint8_t STA_WINDOW = 100; // 1 detik (100 sampel)
 constexpr const uint16_t LTA_WINDOW = 2000; // 20 detik (2000 sampel)
+
+constexpr const uint8_t JITTER_WINDOW = 99;
 
 float accErrorX, accErrorY, gyroErrorX, gyroErrorY, gyroErrorZ;
 bool mpuConnectionState, lastMpuConnectionState = true;
@@ -215,7 +217,7 @@ void loop() {
       digitalWrite(LORA_RST, HIGH);
       delay(10);
 
-      if (manager.init() && rf95.setFrequency(923.2)) {
+      if (manager.init() && rf95.setFrequency(923.2F)) {
         rf95.setTxPower(5, false);
         Serial.println(F("LoRa reinit success!"));
       } else {
@@ -264,6 +266,23 @@ void loop() {
         Serial.print(F("Failed to parsing JSON LoRa!, Error: "));
         Serial.println(error.f_str());
       } else {
+        struct NodeJitterPdr {
+          const char *name;
+          uint16_t prevLatency;
+          uint16_t jitterBuffer[JITTER_WINDOW];
+          uint32_t jitterTotal;
+          uint8_t jitterIndex;
+          uint8_t jitterCount;
+          uint8_t numberOfTxId[JITTER_WINDOW + 1];
+          uint8_t notiIdx = 0;
+        };
+
+        static NodeJitterPdr nodeJitterPdrs[NODE_COUNT] = {
+          {"Gateway", 0, {0}, 0, 0, 0, {0}, 0},
+          {"Node 1", 0, {0}, 0, 0, 0, {0}, 0},
+          {"Node 2", 0, {0}, 0, 0, 0, {0}, 0}
+        };
+
         JsonObject root = json.as<JsonObject>();
 
         for (JsonPair kv : root) {
@@ -279,6 +298,91 @@ void loop() {
           uint16_t latency = getCurrentTimestamp(NULL, 0) - unixTime;
           Serial.print(latency);
           Serial.println(F(" ms"));
+
+          Serial.print(F("Throughput from "));
+          Serial.print(nodeName);
+          Serial.print(F(": "));
+          float throughput;
+          if (latency > 0.001F) {
+            throughput = ((float)dataLength * 8.0F) / ((float)latency * 0.001F);
+          } else {
+            throughput = 0;
+          }
+          Serial.print(throughput);
+          Serial.println(F(" bps"));
+
+          int8_t idx = -1;
+          for (uint8_t i = 0; i < NODE_COUNT; i++) {
+            if (strcmp(nodeJitterPdrs[i].name, nodeName) == 0) {
+              idx = i;
+              break;
+            }
+          }
+
+          // Jika nama node aneh/tidak terdaftar, abaikan
+          if (idx == -1) continue;
+
+          // Perhitungan jitter
+          if (nodeJitterPdrs[idx].prevLatency > 0) { // Kalau udah transmit ke 2 dan seterusnya
+            uint16_t jitter = 0;
+
+            jitter = abs((int32_t)latency - nodeJitterPdrs[idx].prevLatency);
+            nodeJitterPdrs[idx].jitterTotal -= nodeJitterPdrs[idx].jitterBuffer[nodeJitterPdrs[idx].jitterIndex]; // Kurangi total dengan nilai paling lama
+            nodeJitterPdrs[idx].jitterBuffer[nodeJitterPdrs[idx].jitterIndex] = jitter; // Isi buffer index sekarang
+            nodeJitterPdrs[idx].jitterTotal += jitter; // Tambahi total dengan nilai paling baru
+            nodeJitterPdrs[idx].jitterIndex = (nodeJitterPdrs[idx].jitterIndex + 1) % JITTER_WINDOW; // Perbarui index, ulang ke 0 kalau udah lewat batas
+            
+            if (nodeJitterPdrs[idx].jitterCount <= JITTER_WINDOW) {
+              nodeJitterPdrs[idx].jitterCount++;
+            } else { // Kalau udah penuh buffer-nya
+              float jitterAvg = (float)nodeJitterPdrs[idx].jitterTotal / JITTER_WINDOW;
+
+              Serial.print(F("Average jitter of the last "));
+              Serial.print(JITTER_WINDOW + 1);
+              Serial.print(F(" data from "));
+              Serial.print(nodeName);
+              Serial.print(F(": "));
+              Serial.print(jitterAvg);
+              Serial.println(F(" ms"));
+            }
+          }
+          nodeJitterPdrs[idx].prevLatency = latency;
+
+          // Perhitungan PDR
+          nodeJitterPdrs[idx].numberOfTxId[nodeJitterPdrs[idx].notiIdx] = data["tx_id"];
+
+          if (nodeJitterPdrs[idx].notiIdx == JITTER_WINDOW) { // Kalau array buffer udah penuh
+            uint8_t prevTxId = 1;
+
+            for (uint8_t i = 0; i < (JITTER_WINDOW + 1); i++) { // Loop untuk cari tahu jumlah tx id yang berhasil diterima
+              if (prevTxId > nodeJitterPdrs[idx].numberOfTxId[i] || i == JITTER_WINDOW) {
+                float pdr = (i == JITTER_WINDOW) ? 100.0F : ((float)i / (JITTER_WINDOW + 1)) * 100.0F;
+
+                Serial.print(F("PDR of the last "));
+                Serial.print(JITTER_WINDOW + 1);
+                Serial.print(F(" data from "));
+                Serial.print(nodeName);
+                Serial.print(F(": "));
+                Serial.print(pdr);
+                Serial.println(F("%"));
+
+                if (i == JITTER_WINDOW) {
+                  nodeJitterPdrs[idx].notiIdx = 255; // Kalau ditambah 1 jadi 0
+                } else {
+                  memmove(&nodeJitterPdrs[idx].numberOfTxId[0], &nodeJitterPdrs[idx].numberOfTxId[i], ((JITTER_WINDOW - i + 1) * sizeof(nodeJitterPdrs[idx].numberOfTxId[0]))); // Geser nilai array
+                  nodeJitterPdrs[idx].notiIdx = JITTER_WINDOW - i; // Ditambah 1 keluar dari loop
+                }
+
+                prevTxId = 1;
+
+                break;
+              }
+
+              prevTxId = nodeJitterPdrs[idx].numberOfTxId[i];
+            }
+          }
+
+          nodeJitterPdrs[idx].notiIdx++;
         }
 
         strncpy(pendingLoRaPayload, loRaPayload, sizeof(pendingLoRaPayload));
@@ -294,13 +398,13 @@ void loop() {
 
   static float accDyn;
   static float gyroX, gyroY, gyroZ;
-  static float roll = 0.0f, pitch = 0.0f/* , yaw = 0.0f */;
-  static float staLtaRatio = 0.0f;
+  static float roll = 0.0F, pitch = 0.0F/* , yaw = 0.0F */;
+  static float staLtaRatio = 0.0F;
   static uint32_t lastSampleTime = 0, lastPublishTime = 0;
 
   // Pembacaan sensor MPU-6050
   if (currentTime - lastSampleTime >= MPU_SAMPLING_INTERVAL) {
-    float accAngleX = 0.0f, accAngleY = 0.0f;
+    float accAngleX = 0.0F, accAngleY = 0.0F;
 
     // Read acceleromter data
     Wire.beginTransmission(MPU_ADDRESS);
@@ -315,29 +419,29 @@ void loop() {
       accAngleX = (atan2f(accY, sqrtf((accX * accX) + (accZ * accZ))) * RAD_TO_DEG_F) - accErrorX; // accErrorX, See the calculateIMUError() custom function for more details
       accAngleY = (atan2f(-accX, sqrtf((accY * accY) + (accZ * accZ))) * RAD_TO_DEG_F) - accErrorY; // accErrorY
 
-      float accRes = sqrtf((accX * accX) + (accY * accY) + (accZ * accZ)) * 9.81f;
-      accDyn = fabsf(accRes - 9.81f);
+      float accRes = sqrtf((accX * accX) + (accY * accY) + (accZ * accZ)) * 9.81F;
+      accDyn = fabsf(accRes - 9.81F);
 
       // Variabel untuk STA/LTA
       static float staBuffer[STA_WINDOW] = {0};
       static float ltaBuffer[LTA_WINDOW] = {0};
       static uint8_t staIndex = 0;
       static uint16_t ltaIndex = 0;
-      static float staSum = 0.0f, ltaSum = 0.0f;
+      static float staSum = 0.0F, ltaSum = 0.0F;
       static uint16_t sampleCount = 0;
 
       // STA/LTA
       // STA (Short-Term Average)
       staSum -= staBuffer[staIndex];          // Buang riwayat paling tua
       staBuffer[staIndex] = accDyn;           // Masukkan getaran terbaru
-      staSum += staBuffer[staIndex];          // Tambahkan ke total sum
+      staSum += accDyn;                       // Tambahkan ke total sum
       staIndex = (staIndex + 1) % STA_WINDOW; // Putar laci index (0-99)
       float sta = staSum / STA_WINDOW;        // Rata-rata
 
       // LTA (Long-Term Average)
       ltaSum -= ltaBuffer[ltaIndex];
       ltaBuffer[ltaIndex] = accDyn;
-      ltaSum += ltaBuffer[ltaIndex];
+      ltaSum += accDyn;
       ltaIndex = (ltaIndex + 1) % LTA_WINDOW;
       float lta = ltaSum / LTA_WINDOW;
 
@@ -347,10 +451,10 @@ void loop() {
         sampleCount++;
       } else {
         // Laci sudah penuh, hitung rasio dengan aman
-        if (lta > 0.001f) { // Mencegah dibagi dengan 0
+        if (lta > 0.001F) { // Mencegah dibagi dengan 0
           staLtaRatio = sta / lta;
         } else {
-          staLtaRatio = 0.0f;
+          staLtaRatio = 0.0F;
         }
       }
 
@@ -362,7 +466,7 @@ void loop() {
     // Read gyroscope data
     uint32_t lastGyroTime = currentGyroTime; // Previous time is stored before the actual time read
     currentGyroTime = millis(); // Current time actual time read
-    float elapsedTime = (currentGyroTime - lastGyroTime) * 0.001f; // Divide by 1000 to get seconds
+    float elapsedTime = (currentGyroTime - lastGyroTime) * 0.001F; // Divide by 1000 to get seconds
     Wire.beginTransmission(MPU_ADDRESS);
     Wire.write(0x43); // Gyro data first register address 0x43
     Wire.endTransmission(false);
@@ -376,8 +480,8 @@ void loop() {
       gyroZ = gyroZ - gyroErrorZ; // gyroErrorZ
       // Complementary filter - combine acceleromter and gyro angle values
       // Currently the raw values are in degrees per seconds, deg/s, so we need to multiply by sendonds (s) to get the angle in degrees
-      roll = 0.96f * (roll + (gyroX * elapsedTime)) + 0.04f * accAngleX; // deg/s * s = deg
-      pitch = 0.96f * (pitch + (gyroY * elapsedTime)) + 0.04f * accAngleY;
+      roll = 0.96F * (roll + (gyroX * elapsedTime)) + 0.04F * accAngleX; // deg/s * s = deg
+      pitch = 0.96F * (pitch + (gyroY * elapsedTime)) + 0.04F * accAngleY;
       // yaw = yaw + gyroZ * elapsedTime;
 
       mpuConnectionState = true;
@@ -530,7 +634,7 @@ void initLoRa() {
   Serial.println(F("LoRa init success!"));
 
   // Konfigurasi Frekuensi (Sesuaikan dengan aturan regulasi Indonesia)
-  if (!rf95.setFrequency(923.2)) {
+  if (!rf95.setFrequency(923.2F)) {
     Serial.println(F("Set frequency failed!"));
     while (1) { delay(1000); }
   }
@@ -742,8 +846,8 @@ void calculateIMUError() {
   }
 
   // Divide the sum by 200 to get the error value
-  accErrorX = accErrorX * 0.005f;
-  accErrorY = accErrorY * 0.005f;
+  accErrorX = accErrorX * 0.005F;
+  accErrorY = accErrorY * 0.005F;
   c = 0;
   lastMpuConnectionState = true;
 
@@ -773,9 +877,9 @@ void calculateIMUError() {
   }
 
   //Divide the sum by 200 to get the error value
-  gyroErrorX = gyroErrorX * 0.005f;
-  gyroErrorY = gyroErrorY * 0.005f;
-  gyroErrorZ = gyroErrorZ * 0.005f;
+  gyroErrorX = gyroErrorX * 0.005F;
+  gyroErrorY = gyroErrorY * 0.005F;
+  gyroErrorZ = gyroErrorZ * 0.005F;
   lastMpuConnectionState = true;
 
   // Print the error values on the Serial Monitor
@@ -903,9 +1007,9 @@ void sendMessageToTelegram(const char *message) {
     http.stop();
 
     /* if (secureCellularClient.connect("api.telegram.org", 443)) {
-      Serial.print("connected=");
+      Serial.print(F("connected="));
       Serial.println(secureCellularClient.connected());
-      Serial.print("available=");
+      Serial.print(F("available="));
       Serial.println(secureCellularClient.available());
       
       secureCellularClient.print(
@@ -919,7 +1023,7 @@ void sendMessageToTelegram(const char *message) {
         int avail = secureCellularClient.available();
 
         if (avail > 0) {
-          Serial.print("avail=");
+          Serial.print(F("avail="));
           Serial.println(avail);
         }
 
@@ -930,7 +1034,7 @@ void sendMessageToTelegram(const char *message) {
         }
 
         if (!secureCellularClient.connected()) {
-          Serial.println("DISCONNECTED");
+          Serial.println(F("DISCONNECTED"));
           break;
         }
 
@@ -948,13 +1052,13 @@ void buildJsonPayload(char *outputBuffer, size_t maxLen, const char *nodeName, f
   JsonDocument json;
   JsonObject gatewayData = json[nodeName].add<JsonObject>();
 
-  gatewayData["acc_dyn"] = round(accDyn * 100.0f) * 0.01f;
-  gatewayData["sta_lta_ratio"] = round(staLtaRatio * 100.0f) * 0.01f;
-  gatewayData["roll"] = round(roll * 100.0f) * 0.01f;
-  gatewayData["pitch"] = round(pitch * 100.0f) * 0.01f;
-  gatewayData["gyro_x"] = round(gyroX * 100.0f) * 0.01f;
-  gatewayData["gyro_y"] = round(gyroY * 100.0f) * 0.01f;
-  gatewayData["gyro_z"] = round(gyroZ * 100.0f) * 0.01f;
+  gatewayData["acc_dyn"] = round(accDyn * 100.0F) * 0.01F;
+  gatewayData["sta_lta_ratio"] = round(staLtaRatio * 100.0F) * 0.01F;
+  gatewayData["roll"] = round(roll * 100.0F) * 0.01F;
+  gatewayData["pitch"] = round(pitch * 100.0F) * 0.01F;
+  gatewayData["gyro_x"] = round(gyroX * 100.0F) * 0.01F;
+  gatewayData["gyro_y"] = round(gyroY * 100.0F) * 0.01F;
+  gatewayData["gyro_z"] = round(gyroZ * 100.0F) * 0.01F;
 
   serializeJson(json, outputBuffer, maxLen);
 }
@@ -996,7 +1100,7 @@ struct NodeCooldown {
   uint32_t lastDangerVelTime;
 };
 
-NodeCooldown nodeTimers[3] = {
+NodeCooldown nodeTimers[NODE_COUNT] = {
   {"Gateway", "https://www.google.com/maps?q=3.603849926081428,98.66822999261507", 0, 0, 0, 0},
   {"Node 1", "https://www.google.com/maps?q=3.603852901277159,98.66777711800978", 0, 0, 0, 0},
   {"Node 2", "https://www.google.com/maps?q=3.603858320647524,98.66732609471924", 0, 0, 0, 0}
@@ -1014,7 +1118,7 @@ bool evaluateSafetyThresholds(const char *nodeName, float staLtaRatio, float rol
   bool isDangerDetected = false;
 
   int8_t idx = -1;
-  for (uint8_t i = 0; i < 3; i++) {
+  for (uint8_t i = 0; i < NODE_COUNT; i++) {
     if (strcmp(nodeTimers[i].name, nodeName) == 0) {
       idx = i;
       break;
@@ -1025,7 +1129,7 @@ bool evaluateSafetyThresholds(const char *nodeName, float staLtaRatio, float rol
   if (idx == -1) return false;
   
   // Cek threshold gempa
-  if (staLtaRatio > 3.0f) {
+  if (staLtaRatio > 3.0F) {
     isDangerDetected = true;
 
     // Cek cooldown khusus node ini dan hanya masukkan ke variabel global jika sudah lewat 1 menit
@@ -1047,7 +1151,7 @@ bool evaluateSafetyThresholds(const char *nodeName, float staLtaRatio, float rol
   }
 
   // Cek threshold perubahan sudut kemiringan tanah
-  if (absRoll > 5.0f || absPitch > 5.0f) {
+  if (absRoll > 5.0F || absPitch > 5.0F) {
     isDangerDetected = true;
 
     if (currentTime - nodeTimers[idx].lastDangerAngleTime >= TELEGRAM_COOLDOWN || nodeTimers[idx].lastDangerAngleTime == 0) {
@@ -1062,7 +1166,7 @@ bool evaluateSafetyThresholds(const char *nodeName, float staLtaRatio, float rol
 
       nodeTimers[idx].lastDangerAngleTime = currentTime;
     }
-  } else if ((absRoll >= 2.0f && absRoll <= 5.0f) || (absPitch >= 2.0f && absPitch <= 5.0f)) {
+  } else if ((absRoll >= 2.0F && absRoll <= 5.0F) || (absPitch >= 2.0F && absPitch <= 5.0F)) {
     isDangerDetected = true;
 
     if (currentTime - nodeTimers[idx].lastAlertAngleTime >= TELEGRAM_COOLDOWN || nodeTimers[idx].lastAlertAngleTime == 0) {
@@ -1080,7 +1184,7 @@ bool evaluateSafetyThresholds(const char *nodeName, float staLtaRatio, float rol
   }
 
   // Cek threshold kecepatan sudut
-  if (fabsf(gyroX) > 10.0f || fabsf(gyroY) > 10.0f || fabsf(gyroZ) > 10.0f) {
+  if (fabsf(gyroX) > 10.0F || fabsf(gyroY) > 10.0F || fabsf(gyroZ) > 10.0F) {
     isDangerDetected = true;
 
     if (currentTime - nodeTimers[idx].lastDangerVelTime >= TELEGRAM_COOLDOWN || nodeTimers[idx].lastDangerVelTime == 0) {

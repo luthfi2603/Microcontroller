@@ -22,15 +22,16 @@ constexpr const uint8_t RECEIVER_ID = 0; // Alamat ID tujuan
 constexpr const uint8_t PREV_NODE_ID = 2; // Alamat ID node sebelumnya
 constexpr const bool LAST_NODE = false; // Apakah node terakhir
 
-constexpr const float RAD_TO_DEG_F = 57.29577951f; // 180 / PI(3.14)
-constexpr const float ACCEL_SCALE = 1.0f / 16384.0f; // / 16384
-constexpr const float GYRO_SCALE  = 1.0f / 131.0f; // / 131
+constexpr const float RAD_TO_DEG_F = 57.29577951F; // 180 / PI(3.14)
+constexpr const float ACCEL_SCALE = 1.0F / 16384.0F; // / 16384
+constexpr const float GYRO_SCALE  = 1.0F / 131.0F; // / 131
 constexpr const uint8_t STA_WINDOW = 100; // 1 detik (100 sampel)
 constexpr const uint16_t LTA_WINDOW = 2000; // 20 detik (2000 sampel)
 
 float accErrorX, accErrorY, gyroErrorX, gyroErrorY, gyroErrorZ;
 bool mpuConnectionState, lastMpuConnectionState = true;
 uint32_t currentGyroTime;
+uint8_t txId = 0;
 
 /* // volatile untuk CPU cek langsung ke SRAM
 volatile bool receivedSwitchFlag = false;
@@ -106,7 +107,7 @@ void loop() {
       digitalWrite(LORA_RST, HIGH);
       delay(10);
 
-      if (manager.init() && rf95.setFrequency(923.2)) {
+      if (manager.init() && rf95.setFrequency(923.2F)) {
         rf95.setTxPower(5, false);
         Serial.println(F("LoRa reinit success!"));
       } else {
@@ -184,13 +185,13 @@ void loop() {
 
   static float accDyn;
   static float gyroX, gyroY, gyroZ;
-  static float roll = 0.0f, pitch = 0.0f/* , yaw = 0.0f */;
-  static float staLtaRatio = 0.0f;
+  static float roll = 0.0F, pitch = 0.0F/* , yaw = 0.0F */;
+  static float staLtaRatio = 0.0F;
   static uint32_t lastSampleTime = 0, lastTxTime = 0;
 
   // Pembacaan sensor MPU-6050
   if (currentTime - lastSampleTime >= MPU_SAMPLING_INTERVAL) {
-    float accAngleX = 0.0f, accAngleY = 0.0f;
+    float accAngleX = 0.0F, accAngleY = 0.0F;
 
     // Read acceleromter data
     Wire.beginTransmission(MPU_ADDRESS);
@@ -205,15 +206,15 @@ void loop() {
       accAngleX = (atan2f(accY, sqrtf((accX * accX) + (accZ * accZ))) * RAD_TO_DEG_F) - accErrorX; // accErrorX, See the calculateIMUError() custom function for more details
       accAngleY = (atan2f(-accX, sqrtf((accY * accY) + (accZ * accZ))) * RAD_TO_DEG_F) - accErrorY; // accErrorY
 
-      float accRes = sqrtf((accX * accX) + (accY * accY) + (accZ * accZ)) * 9.81f;
-      accDyn = fabsf(accRes - 9.81f);
+      float accRes = sqrtf((accX * accX) + (accY * accY) + (accZ * accZ)) * 9.81F;
+      accDyn = fabsf(accRes - 9.81F);
 
       // Variabel untuk STA/LTA
       static float staBuffer[STA_WINDOW] = {0};
       static float ltaBuffer[LTA_WINDOW] = {0};
       static uint8_t staIndex = 0;
       static uint16_t ltaIndex = 0;
-      static float staSum = 0.0f, ltaSum = 0.0f;
+      static float staSum = 0.0F, ltaSum = 0.0F;
       static uint16_t sampleCount = 0;
 
       // STA/LTA
@@ -237,10 +238,10 @@ void loop() {
         sampleCount++;
       } else {
         // Laci sudah penuh, hitung rasio dengan aman
-        if (lta > 0.001f) { // Mencegah dibagi dengan 0
+        if (lta > 0.001F) { // Mencegah dibagi dengan 0
           staLtaRatio = sta / lta;
         } else {
-          staLtaRatio = 0.0f;
+          staLtaRatio = 0.0F;
         }
       }
 
@@ -252,7 +253,7 @@ void loop() {
     // Read gyroscope data
     uint32_t lastGyroTime = currentGyroTime; // Previous time is stored before the actual time read
     currentGyroTime = millis(); // Current time actual time read
-    float elapsedTime = (currentGyroTime - lastGyroTime) * 0.001f; // Divide by 1000 to get seconds
+    float elapsedTime = (currentGyroTime - lastGyroTime) * 0.001F; // Divide by 1000 to get seconds
     Wire.beginTransmission(MPU_ADDRESS);
     Wire.write(0x43); // Gyro data first register address 0x43
     Wire.endTransmission(false);
@@ -266,8 +267,8 @@ void loop() {
       gyroZ = gyroZ - gyroErrorZ; // gyroErrorZ
       // Complementary filter - combine acceleromter and gyro angle values
       // Currently the raw values are in degrees per seconds, deg/s, so we need to multiply by sendonds (s) to get the angle in degrees
-      roll = 0.96f * (roll + (gyroX * elapsedTime)) + 0.04f * accAngleX; // deg/s * s = deg
-      pitch = 0.96f * (pitch + (gyroY * elapsedTime)) + 0.04f * accAngleY;
+      roll = 0.96F * (roll + (gyroX * elapsedTime)) + 0.04F * accAngleX; // deg/s * s = deg
+      pitch = 0.96F * (pitch + (gyroY * elapsedTime)) + 0.04F * accAngleY;
       // yaw = yaw + gyroZ * elapsedTime;
 
       mpuConnectionState = true;
@@ -285,13 +286,16 @@ void loop() {
         deserializeJson(json, pendingLoRaPayload);
         JsonObject nodeData = json[NODE_NAME].add<JsonObject>();
 
-        nodeData["acc_dyn"] = round(accDyn * 100.0f) * 0.01f;
-        nodeData["sta_lta_ratio"] = round(staLtaRatio * 100.0f) * 0.01f;
-        nodeData["roll"] = round(roll * 100.0f) * 0.01f;
-        nodeData["pitch"] = round(pitch * 100.0f) * 0.01f;
-        nodeData["gyro_x"] = round(gyroX * 100.0f) * 0.01f;
-        nodeData["gyro_y"] = round(gyroY * 100.0f) * 0.01f;
-        nodeData["gyro_z"] = round(gyroZ * 100.0f) * 0.01f;
+        nodeData["acc_dyn"] = round(accDyn * 100.0F) * 0.01F;
+        nodeData["sta_lta_ratio"] = round(staLtaRatio * 100.0F) * 0.01F;
+        nodeData["roll"] = round(roll * 100.0F) * 0.01F;
+        nodeData["pitch"] = round(pitch * 100.0F) * 0.01F;
+        nodeData["gyro_x"] = round(gyroX * 100.0F) * 0.01F;
+        nodeData["gyro_y"] = round(gyroY * 100.0F) * 0.01F;
+        nodeData["gyro_z"] = round(gyroZ * 100.0F) * 0.01F;
+        nodeData["t"] = getCurrentTimestamp(NULL, 0);
+        if (txId == 100) txId = 0; 
+        nodeData["tx_id"] = ++txId;
 
         // Cek secara virtual ukuran payload jika digabung
         size_t estimatedSize = measureJson(json);
@@ -302,8 +306,7 @@ void loop() {
 
           Serial.println(F("----------------\r\nLoRa JSON payload merged!"));
           loRaTransmit(jsonPayload);
-        } else {
-          // Terlalu besar! Batalkan penggabungan, kirim berurutan secara utuh!
+        } else { // Terlalu besar! Batalkan penggabungan, kirim berurutan secara utuh!
           Serial.println(F("----------------\r\nMerged JSON exceeds 251 bytes! Splitting transmission..."));
           
           // Meneruskan LoRa payload
@@ -392,7 +395,7 @@ void initLoRa() {
   Serial.println(F("LoRa init success!"));
 
   // Konfigurasi Frekuensi (Sesuaikan dengan aturan regulasi Indonesia)
-  if (!rf95.setFrequency(923.2)) {
+  if (!rf95.setFrequency(923.2F)) {
     Serial.println(F("Set frequency failed!"));
     while (1) { delay(1000); }
   }
@@ -595,8 +598,8 @@ void calculateIMUError() {
   }
 
   // Divide the sum by 200 to get the error value
-  accErrorX = accErrorX * 0.005f;
-  accErrorY = accErrorY * 0.005f;
+  accErrorX = accErrorX * 0.005F;
+  accErrorY = accErrorY * 0.005F;
   c = 0;
   lastMpuConnectionState = true;
 
@@ -626,9 +629,9 @@ void calculateIMUError() {
   }
 
   //Divide the sum by 200 to get the error value
-  gyroErrorX = gyroErrorX * 0.005f;
-  gyroErrorY = gyroErrorY * 0.005f;
-  gyroErrorZ = gyroErrorZ * 0.005f;
+  gyroErrorX = gyroErrorX * 0.005F;
+  gyroErrorY = gyroErrorY * 0.005F;
+  gyroErrorZ = gyroErrorZ * 0.005F;
   lastMpuConnectionState = true;
 
   // Print the error values on the Serial Monitor
@@ -650,19 +653,19 @@ bool evaluateSafetyThresholds(const char *nodeName, float staLtaRatio, float rol
   bool isDangerDetected = false;
 
   // Cek threshold gempa
-  if (staLtaRatio > 3.0f) {
+  if (staLtaRatio > 3.0F) {
     isDangerDetected = true;
   }
 
   // Cek threshold perubahan sudut kemiringan tanah
-  if (absRoll > 5.0f || absPitch > 5.0f) {
+  if (absRoll > 5.0F || absPitch > 5.0F) {
     isDangerDetected = true;
-  } else if ((absRoll >= 2.0f && absRoll <= 5.0f) || (absPitch >= 2.0f && absPitch <= 5.0f)) {
+  } else if ((absRoll >= 2.0F && absRoll <= 5.0F) || (absPitch >= 2.0F && absPitch <= 5.0F)) {
     isDangerDetected = true;
   }
 
   // Cek threshold kecepatan sudut
-  if (fabsf(gyroX) > 10.0f || fabsf(gyroY) > 10.0f || fabsf(gyroZ) > 10.0f) {
+  if (fabsf(gyroX) > 10.0F || fabsf(gyroY) > 10.0F || fabsf(gyroZ) > 10.0F) {
     isDangerDetected = true;
   }
 
@@ -673,14 +676,16 @@ void buildJsonPayload(char *outputBuffer, size_t maxLen, const char *nodeName, f
   JsonDocument json;
   JsonObject nodeData = json[nodeName].add<JsonObject>();
 
-  nodeData["acc_dyn"] = round(accDyn * 100.0f) * 0.01f;
-  nodeData["sta_lta_ratio"] = round(staLtaRatio * 100.0f) * 0.01f;
-  nodeData["roll"] = round(roll * 100.0f) * 0.01f;
-  nodeData["pitch"] = round(pitch * 100.0f) * 0.01f;
-  nodeData["gyro_x"] = round(gyroX * 100.0f) * 0.01f;
-  nodeData["gyro_y"] = round(gyroY * 100.0f) * 0.01f;
-  nodeData["gyro_z"] = round(gyroZ * 100.0f) * 0.01f;
+  nodeData["acc_dyn"] = round(accDyn * 100.0F) * 0.01F;
+  nodeData["sta_lta_ratio"] = round(staLtaRatio * 100.0F) * 0.01F;
+  nodeData["roll"] = round(roll * 100.0F) * 0.01F;
+  nodeData["pitch"] = round(pitch * 100.0F) * 0.01F;
+  nodeData["gyro_x"] = round(gyroX * 100.0F) * 0.01F;
+  nodeData["gyro_y"] = round(gyroY * 100.0F) * 0.01F;
+  nodeData["gyro_z"] = round(gyroZ * 100.0F) * 0.01F;
   nodeData["t"] = getCurrentTimestamp(NULL, 0);
+  if (txId == 100) txId = 0; 
+  nodeData["tx_id"] = ++txId;
 
   serializeJson(json, outputBuffer, maxLen);
 }

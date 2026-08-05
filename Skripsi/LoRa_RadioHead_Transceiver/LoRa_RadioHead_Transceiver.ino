@@ -400,8 +400,8 @@ void initLoRa() {
     while (1) { delay(1000); }
   }
 
-  // Konfigurasi Power (Maksimal 23 dBm untuk SX1276)
-  rf95.setTxPower(5, false);
+  // Konfigurasi power (Default 13 dBm library RadioHead, maksimal 20 dBm untuk SX1276)
+  // rf95.setTxPower(5, false);
   
   manager.setRetries(3); // Ubah jumlah pengiriman ulang (default = 3)
   manager.setTimeout(200); // Waktu tunggu ACK dalam milidetik (default = 200)

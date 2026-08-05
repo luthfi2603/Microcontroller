@@ -156,7 +156,7 @@ void loop() {
     static uint32_t lastNetwork4GReconnectTime = 0;
 
     if (currentTime - lastNetwork4GReconnectTime >= NETWORK_4G_RECONNECT_INTERVAL) {
-      if (xSemaphoreTake(modemMutex, portMAX_DELAY) == pdTRUE) {
+      if (xSemaphoreTake(modemMutex, 10 / portTICK_PERIOD_MS) == pdTRUE) {
         Serial.println(F("----------------"));
 
         if (!modem.isNetworkConnected()) {
@@ -182,7 +182,7 @@ void loop() {
       lastNetwork4GReconnectTime = currentTime;
     }
   } else {
-    if (xSemaphoreTake(modemMutex, portMAX_DELAY) == pdTRUE) {
+    if (xSemaphoreTake(modemMutex, 10 / portTICK_PERIOD_MS) == pdTRUE) {
       if (!mqttClient.connected()) {
         static uint32_t lastMqttReconnectTime = 0;
 
@@ -639,8 +639,8 @@ void initLoRa() {
     while (1) { delay(1000); }
   }
 
-  // Konfigurasi Power (Maksimal 23 dBm untuk SX1276)
-  rf95.setTxPower(5, false);
+  // Konfigurasi power (Default 13 dBm library RadioHead, maksimal 20 dBm untuk SX1276)
+  // rf95.setTxPower(5, false);
   
   Serial.println(F("LoRa starting to listen..."));
 }

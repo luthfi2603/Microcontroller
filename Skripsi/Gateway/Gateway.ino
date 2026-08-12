@@ -274,7 +274,7 @@ void loop() {
           uint8_t jitterIndex;
           uint8_t jitterCount;
           uint8_t numberOfTxId[JITTER_WINDOW + 1];
-          uint8_t notiIdx = 0;
+          uint8_t notiIdx;
         };
 
         static NodeJitterPdr nodeJitterPdrs[NODE_COUNT] = {
@@ -332,7 +332,7 @@ void loop() {
             nodeJitterPdrs[idx].jitterTotal += jitter; // Tambahi total dengan nilai paling baru
             nodeJitterPdrs[idx].jitterIndex = (nodeJitterPdrs[idx].jitterIndex + 1) % JITTER_WINDOW; // Perbarui index, ulang ke 0 kalau udah lewat batas
             
-            if (nodeJitterPdrs[idx].jitterCount <= JITTER_WINDOW) {
+            if (nodeJitterPdrs[idx].jitterCount < JITTER_WINDOW - 1) {
               nodeJitterPdrs[idx].jitterCount++;
             } else { // Kalau udah penuh buffer-nya
               float jitterAvg = (float)nodeJitterPdrs[idx].jitterTotal / JITTER_WINDOW;

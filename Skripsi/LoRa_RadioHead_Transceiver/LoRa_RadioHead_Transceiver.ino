@@ -90,16 +90,16 @@ void loop() {
   uint32_t currentTime = millis();
 
   static uint32_t lastLoRaCheckTime = 0;
-  
+
   // Cek konektivitas LoRa
   if (currentTime - lastLoRaCheckTime >= LORA_CHECK_INTERVAL) {
     // Jalankan perintah read register bawaan RadioHead (Register 0x42 adalah RegAfcOf)
     uint8_t version = rf95.spiRead(0x42);
-    
+
     // Jika mengembalikan 0x00 atau 0xFF, kemungkinan besar koneksi SPI ke chip LoRa putus
     if (version != 0x12) {
       Serial.println(F("----------------\r\nLoRa disconnected! Attempting to reinit..."));
-      
+
       digitalWrite(LORA_RST, HIGH);
       delay(10);
       digitalWrite(LORA_RST, LOW);
@@ -108,13 +108,13 @@ void loop() {
       delay(10);
 
       if (manager.init() && rf95.setFrequency(923.2F)) {
-        rf95.setTxPower(5, false);
+        // rf95.setTxPower(5, false);
         Serial.println(F("LoRa reinit success!"));
       } else {
         Serial.println(F("LoRa reinit failed!"));
       }
     }
-    
+
     lastLoRaCheckTime = currentTime;
   }
 
@@ -294,8 +294,9 @@ void loop() {
         nodeData["gyro_y"] = round(gyroY * 100.0F) * 0.01F;
         nodeData["gyro_z"] = round(gyroZ * 100.0F) * 0.01F;
         nodeData["t"] = getCurrentTimestamp(NULL, 0);
-        if (txId == 100) txId = 0; 
-        nodeData["tx_id"] = ++txId;
+        if (txId == 100) txId = 0;
+        uint8_t tempTxId = txId;
+        nodeData["tx_id"] = ++tempTxId;
 
         // Cek secara virtual ukuran payload jika digabung
         size_t estimatedSize = measureJson(json);
@@ -306,19 +307,20 @@ void loop() {
 
           Serial.println(F("----------------\r\nLoRa JSON payload merged!"));
           loRaTransmit(jsonPayload);
+          ++txId;
         } else { // Terlalu besar! Batalkan penggabungan, kirim berurutan secara utuh!
           Serial.println(F("----------------\r\nMerged JSON exceeds 251 bytes! Splitting transmission..."));
-          
+
           // Meneruskan LoRa payload
-          loRaTransmit(pendingLoRaPayload); 
-          
+          loRaTransmit(pendingLoRaPayload);
+
           // Transmit data node ini
           char jsonPayload[256];
           buildJsonPayload(jsonPayload, sizeof(jsonPayload), NODE_NAME, accDyn, staLtaRatio, roll, pitch, gyroX, gyroY, gyroZ);
 
-          loRaTransmit(jsonPayload); 
+          loRaTransmit(jsonPayload);
         }
-        
+
         lastTxTime = currentTime;
       } else { // Kalau node ini tidak melewati threshold hanya meneruskan LoRa payload
         loRaTransmit(pendingLoRaPayload);
@@ -391,7 +393,7 @@ void initLoRa() {
     Serial.println(F("Lora init failed! Check SPI cable (MISO, MOSI, SCK, CS)!"));
     while (1) { delay(1000); } // Berhenti di sini jika gagal
   }
-  
+
   Serial.println(F("LoRa init success!"));
 
   // Konfigurasi Frekuensi (Sesuaikan dengan aturan regulasi Indonesia)
@@ -402,7 +404,7 @@ void initLoRa() {
 
   // Konfigurasi power (Default 13 dBm library RadioHead, maksimal 20 dBm untuk SX1276)
   // rf95.setTxPower(5, false);
-  
+
   manager.setRetries(3); // Ubah jumlah pengiriman ulang (default = 3)
   manager.setTimeout(200); // Waktu tunggu ACK dalam milidetik (default = 200)
 
@@ -440,20 +442,20 @@ void initTime() {
         } else {
           if (manager.headerFrom() == RECEIVER_ID) {
             unixTime = json["t"].as<uint64_t>() + 108ULL;
-  
+
             Serial.print(F("Unix time: "));
             Serial.println(unixTime);
 
             // Atur zona waktu ESP32 agar perhitungan unix time akurat
             setenv("TZ", "WIB-7", 1);
             tzset();
-  
+
             struct timeval tv;
             tv.tv_sec = unixTime / 1000ULL;
             tv.tv_usec = (unixTime % 1000ULL) * 1000ULL;
-  
+
             settimeofday(&tv, NULL);
-  
+
             Serial.println(F("RTC synchronized successfully!"));
             timeSynced = true;
           } else {
@@ -475,26 +477,26 @@ void initTime() {
   if (!LAST_NODE) {
     char jsonUnixTime[20];
     snprintf(jsonUnixTime, sizeof(jsonUnixTime), "{\"t\":%llu}", unixTime);
-  
+
     Serial.print(F("Transmit message to ID: "));
     Serial.println(PREV_NODE_ID);
     Serial.println(F("Message:"));
     Serial.println(jsonUnixTime);
-  
+
     manager.setRetries(0);
     manager.setTimeout(1000);
-  
+
     Serial.print(F("Sending time to Node "));
     Serial.print(PREV_NODE_ID);
     while (!manager.sendtoWait((uint8_t *)jsonUnixTime, sizeof(jsonUnixTime), PREV_NODE_ID)) {
       snprintf(jsonUnixTime, sizeof(jsonUnixTime), "{\"t\":%llu}", getCurrentTimestamp(NULL, 0));
-  
+
       Serial.print(F("."));
     }
-  
+
     manager.setRetries(3);
     manager.setTimeout(200);
-  
+
     Serial.println(F("\r\nTransmission success! Validated by receiver!"));
   }
 }
@@ -540,10 +542,10 @@ void initMPU() {
   Wire.beginTransmission(MPU_ADDRESS);
   Wire.write(0x75); // Tanya KTP (Register WHO_AM_I)
   Wire.endTransmission(false);
-  
+
   if (Wire.requestFrom(MPU_ADDRESS, 1, true) == 1) {
     uint8_t whoAmI = Wire.read();
-    
+
     if (whoAmI == 0x68 || whoAmI == 0x70) {
       Serial.println(F("MPU-6050 init success!"));
     } else {
@@ -684,7 +686,7 @@ void buildJsonPayload(char *outputBuffer, size_t maxLen, const char *nodeName, f
   nodeData["gyro_y"] = round(gyroY * 100.0F) * 0.01F;
   nodeData["gyro_z"] = round(gyroZ * 100.0F) * 0.01F;
   nodeData["t"] = getCurrentTimestamp(NULL, 0);
-  if (txId == 100) txId = 0; 
+  if (txId == 100) txId = 0;
   nodeData["tx_id"] = ++txId;
 
   serializeJson(json, outputBuffer, maxLen);

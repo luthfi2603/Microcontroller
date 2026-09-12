@@ -188,7 +188,7 @@ void loop() {
 
         if (currentTime - lastMqttReconnectTime >= MQTT_RECONNECT_INTERVAL) {
           mqttReconnect();
-          
+
           lastMqttReconnectTime = currentTime;
         }
       } else { // Kalau tidak ada masalah
@@ -200,16 +200,16 @@ void loop() {
   }
 
   static uint32_t lastLoRaCheckTime = 0;
-  
+
   // Cek konektivitas LoRa
   if (currentTime - lastLoRaCheckTime >= LORA_CHECK_INTERVAL) {
     // Jalankan perintah read register bawaan RadioHead (Register 0x42 adalah RegAfcOf)
     uint8_t version = rf95.spiRead(0x42);
-    
+
     // Jika mengembalikan 0x00 atau 0xFF, kemungkinan besar koneksi SPI ke chip LoRa putus
     if (version != 0x12) {
       Serial.println(F("----------------\r\nLoRa disconnected! Attempting to reinit..."));
-      
+
       digitalWrite(LORA_RST, HIGH);
       delay(10);
       digitalWrite(LORA_RST, LOW);
@@ -218,13 +218,13 @@ void loop() {
       delay(10);
 
       if (manager.init() && rf95.setFrequency(923.2F)) {
-        rf95.setTxPower(5, false);
+        // rf95.setTxPower(5, false);
         Serial.println(F("LoRa reinit success!"));
       } else {
         Serial.println(F("LoRa reinit failed!"));
       }
     }
-    
+
     lastLoRaCheckTime = currentTime;
   }
 
@@ -265,6 +265,9 @@ void loop() {
       if (error) {
         Serial.print(F("Failed to parsing JSON LoRa!, Error: "));
         Serial.println(error.f_str());
+
+        Serial.println(F("Automatically send ACK reply to sending node..."));
+        Serial.println(F("LoRa starting to listen again..."));
       } else {
         struct NodeJitterPdr {
           const char *name;
@@ -331,7 +334,7 @@ void loop() {
             nodeJitterPdrs[idx].jitterBuffer[nodeJitterPdrs[idx].jitterIndex] = jitter; // Isi buffer index sekarang
             nodeJitterPdrs[idx].jitterTotal += jitter; // Tambahi total dengan nilai paling baru
             nodeJitterPdrs[idx].jitterIndex = (nodeJitterPdrs[idx].jitterIndex + 1) % JITTER_WINDOW; // Perbarui index, ulang ke 0 kalau udah lewat batas
-            
+
             if (nodeJitterPdrs[idx].jitterCount < JITTER_WINDOW - 1) {
               nodeJitterPdrs[idx].jitterCount++;
             } else { // Kalau udah penuh buffer-nya
@@ -388,11 +391,11 @@ void loop() {
         strncpy(pendingLoRaPayload, loRaPayload, sizeof(pendingLoRaPayload));
         hasPendingLoRaData = true; // Angkat bendera
 
+        Serial.println(F("Automatically send ACK reply to sending node..."));
+        Serial.println(F("LoRa starting to listen again..."));
+
         mqttPublishToThingsBoard(loRaPayload);
       }
-
-      Serial.println(F("Automatically send ACK reply to sending node..."));
-      Serial.println(F("LoRa starting to listen again..."));
     }
   }
 
@@ -584,7 +587,7 @@ void init4G() {
   Serial.println(F("OK! Modem is awake!"));
 
   // Matikan fitur Echo (Pantulan Teks) secara manual agar library tidak bingung
-  Serial2.print("ATE0\r\n"); 
+  Serial2.print("ATE0\r\n");
   delay(100);
 
   // Blokir SMS agar tidak mengganggu jalur UART
@@ -630,7 +633,7 @@ void initLoRa() {
     Serial.println(F("Lora init failed! Check SPI cable (MISO, MOSI, SCK, CS)!"));
     while (1) { delay(1000); } // Berhenti di sini jika gagal
   }
-  
+
   Serial.println(F("LoRa init success!"));
 
   // Konfigurasi Frekuensi (Sesuaikan dengan aturan regulasi Indonesia)
@@ -641,7 +644,7 @@ void initLoRa() {
 
   // Konfigurasi power (Default 13 dBm library RadioHead, maksimal 20 dBm untuk SX1276)
   // rf95.setTxPower(5, false);
-  
+
   Serial.println(F("LoRa starting to listen..."));
 }
 
@@ -683,7 +686,7 @@ void initTime() {
   bool timeSynced = false;
 
   Serial.print(F("Getting network time"));
-  
+
   // Looping maksimal 5 kali (jeda 2 detik) agar tidak Infinite Loop jika sinyal jelek
   while (retry < 5) {
     // Tarik waktu dari menara BTS via AT+CCLK? bawaan TinyGSM
@@ -696,6 +699,15 @@ void initTime() {
     retry++;
   }
 
+  // Atur zona waktu ESP32 agar perhitungan unix time akurat
+  setenv("TZ", "WIB-7", 1);
+  tzset();
+
+  uint64_t unixTime = 0;
+  struct tm timeInfo = {0};
+  struct timeval tv;
+  tv.tv_usec = 0; // NITZ tidak memberikan mikrodetik, jadi atur ke 0
+
   if (timeSynced) {
     Serial.println(F("\r\nCellular time is obtained!"));
 
@@ -703,7 +715,6 @@ void initTime() {
     if (year < 2000) year += 2000;
 
     // Rakit ke dalam struct tm standar C/C++
-    struct tm timeInfo = {0};
     timeInfo.tm_year = year - 1900; // Standar C: Tahun sejak 1900
     timeInfo.tm_mon  = month - 1;   // Standar C: Bulan dimulai dari 0 (Jan - Des)
     timeInfo.tm_mday = day;
@@ -711,72 +722,76 @@ void initTime() {
     timeInfo.tm_min  = min;
     timeInfo.tm_sec  = sec;
 
-    // Atur zona waktu ESP32 agar perhitungan unix time akurat
-    setenv("TZ", "WIB-7", 1);
-    tzset();
-
     // Konversi format kalender menjadi angka unix time (detik sejak 1 Januari 1970)
     time_t epoch = mktime(&timeInfo);
 
     // Sinkronisasi waktu ini ke dalam jam internal (RTC) ESP32
-    struct timeval tv;
     tv.tv_sec = epoch;
-    tv.tv_usec = 0; // NITZ tidak memberikan mikrodetik, jadi atur ke 0
-    settimeofday(&tv, NULL);
-
-    // --- Dari titik ini, jam internal ESP32 sudah berjalan akurat secara mandiri ---
 
     // Konversi ke format milidetik
-    uint64_t unixTime = (uint64_t)epoch * 1000ULL;
-    
-    Serial.print(F("Unix time: "));
-    Serial.println(unixTime);
-
-    // Tampilkan format ke Serial Monitor
-    Serial.print(F("Current timestamp: "));
-    Serial.println(&timeInfo, "%A, %d %B %Y %H:%M:%S");
-
-    char jsonUnixTime[20];
-    snprintf(jsonUnixTime, sizeof(jsonUnixTime), "{\"t\":%llu}", unixTime);
-
-    Serial.println(F("Transmit message to ID: 1"));
-    Serial.println(F("Message:"));
-    Serial.println(jsonUnixTime);
-
-    manager.setRetries(0);
-    manager.setTimeout(1000);
-
-    Serial.print(F("Sending time to Node 1"));
-    while (!manager.sendtoWait((uint8_t*)jsonUnixTime, sizeof(jsonUnixTime), 1)) {
-      snprintf(jsonUnixTime, sizeof(jsonUnixTime), "{\"t\":%llu}", getCurrentTimestamp(NULL, 0));
-
-      Serial.print(F("."));
-    }
-    Serial.println(F("\r\nTransmission success! Validated by receiver!"));
+    unixTime = (uint64_t)epoch * 1000ULL;
   } else {
-    // Jalur penyelamatan jika sinyal ke BTS gagal total
-    Serial.println(F("\r\nFailed to get network time! System will proceed with unix time 0"));
+    // Jalur penyelamatan jika tidak mendapatkan waktu dari BTS
+    Serial.println(F("\r\nFailed to get network time! System will proceed with unix time 0!"));
+
+    timeInfo.tm_year = 70;
+    timeInfo.tm_mday = 1;
+    timeInfo.tm_hour = 7;
+
+    // Agar struktur lainnya terisi otomatis dengan benar
+    mktime(&timeInfo);
+
+    // Setel RTC ESP32 secara manual ke 0 agar timer millis()/gettimeofday() bisa mulai jalan
+    tv.tv_sec = 0;
   }
+
+  settimeofday(&tv, NULL); // Dari titik ini, jam internal ESP32 sudah berjalan akurat secara mandiri
+
+  // Tampilkan waktu
+  Serial.print(F("Unix time: "));
+  Serial.println(unixTime);
+
+  // Tampilkan format kalender
+  Serial.print(F("Current timestamp: "));
+  Serial.println(&timeInfo, "%A, %d %B %Y %H:%M:%S");
+
+  char jsonUnixTime[20];
+  snprintf(jsonUnixTime, sizeof(jsonUnixTime), "{\"t\":%llu}", unixTime);
+
+  Serial.println(F("Transmit message to ID: 1"));
+  Serial.println(F("Message:"));
+  Serial.println(jsonUnixTime);
+
+  manager.setRetries(0);
+  manager.setTimeout(1000);
+
+  Serial.print(F("Sending time to Node 1"));
+  while (!manager.sendtoWait((uint8_t*)jsonUnixTime, sizeof(jsonUnixTime), 1)) {
+    snprintf(jsonUnixTime, sizeof(jsonUnixTime), "{\"t\":%llu}", getCurrentTimestamp(NULL, 0));
+
+    Serial.print(F("."));
+  }
+  Serial.println(F("\r\nTransmission success! Validated by receiver!"));
 }
 
 uint64_t getCurrentTimestamp(char *outputBuffer, size_t maxLen) {
   struct timeval tv;
   gettimeofday(&tv, NULL);
-  
+
   // Hitung unix time dalam milidetik
   uint64_t unixTimeMillis = ((uint64_t)tv.tv_sec * 1000ULL) + (tv.tv_usec / 1000);
-  
+
   // Jika wadah teks disediakan (tidak NULL), isi wadahnya dengan format manusia
   if (outputBuffer != NULL && maxLen > 0) {
     struct tm runningTimeInfo;
     localtime_r(&tv.tv_sec, &runningTimeInfo); // Terjemahkan ke format kalender
 
     snprintf(outputBuffer, maxLen, "%04d-%02d-%02d %02d:%02d:%02d.%03ld",
-             runningTimeInfo.tm_year + 1900, 
-             runningTimeInfo.tm_mon + 1, 
+             runningTimeInfo.tm_year + 1900,
+             runningTimeInfo.tm_mon + 1,
              runningTimeInfo.tm_mday,
-             runningTimeInfo.tm_hour, 
-             runningTimeInfo.tm_min, 
+             runningTimeInfo.tm_hour,
+             runningTimeInfo.tm_min,
              runningTimeInfo.tm_sec,
              (long)tv.tv_usec / 1000);
   }
@@ -800,10 +815,10 @@ void initMPU() {
   Wire.beginTransmission(MPU_ADDRESS);
   Wire.write(0x75); // Tanya KTP (Register WHO_AM_I)
   Wire.endTransmission(false);
-  
+
   if (Wire.requestFrom(MPU_ADDRESS, 1, true) == 1) {
     uint8_t whoAmI = Wire.read();
-    
+
     if (whoAmI == 0x68 || whoAmI == 0x70) {
       Serial.println(F("MPU-6050 init success!"));
     } else {
@@ -946,7 +961,7 @@ void urlEncode(const char *str, char *encodedStr, size_t maxLen) {
     // Cegah buffer overflow dengan pastikan wadah masih muat untuk 3 karakter ("%XX") + 1 karakter penutup ('\0')
     if (encodedIdx + 3 >= maxLen - 1) {
       Serial.println(F("Buffer overflow, string cut!"));
-      break; 
+      break;
     }
 
     uint8_t c = (uint8_t)str[i];
@@ -972,7 +987,7 @@ void sendMessageToTelegram(const char *message) {
   snprintf(apiPath, sizeof(apiPath),
            "/bot%s/sendMessage?chat_id=%s&text=%s",
            TELEGRAM_BOT_API_TOKEN, CHAT_ID, encodedMsg);
-  
+
   Serial.println(F("Trying request to:"));
   Serial.print(F("https://api.telegram.org"));
   Serial.println(apiPath);
@@ -1011,7 +1026,7 @@ void sendMessageToTelegram(const char *message) {
       Serial.println(secureCellularClient.connected());
       Serial.print(F("available="));
       Serial.println(secureCellularClient.available());
-      
+
       secureCellularClient.print(
         String("GET ") + apiPath + " HTTP/1.1\r\n"
         "Host: api.telegram.org\r\n\r\n"
@@ -1127,7 +1142,7 @@ bool evaluateSafetyThresholds(const char *nodeName, float staLtaRatio, float rol
 
   // Jika nama node aneh/tidak terdaftar, abaikan
   if (idx == -1) return false;
-  
+
   // Cek threshold gempa
   if (staLtaRatio > 3.0F) {
     isDangerDetected = true;
@@ -1139,7 +1154,7 @@ bool evaluateSafetyThresholds(const char *nodeName, float staLtaRatio, float rol
         char tempBuffer[78];
         // Rakit format baris baru: Enter -> Dash -> Nama Node -> Titik Dua -> URL
         snprintf(tempBuffer, sizeof(tempBuffer), "\n- %s: %s", nodeName, nodeTimers[idx].mapUrl);
-        
+
         // Cek apakah wadah 256 byte global masih muat
         if (strlen(alertEarthquakeNodes) + strlen(tempBuffer) < sizeof(alertEarthquakeNodes)) {
           strcat(alertEarthquakeNodes, tempBuffer);
@@ -1158,7 +1173,7 @@ bool evaluateSafetyThresholds(const char *nodeName, float staLtaRatio, float rol
       if (strstr(dangerAngleNodes, nodeName) == NULL) {
         char tempBuffer[78];
         snprintf(tempBuffer, sizeof(tempBuffer), "\n- %s: %s", nodeName, nodeTimers[idx].mapUrl);
-        
+
         if (strlen(dangerAngleNodes) + strlen(tempBuffer) < sizeof(dangerAngleNodes)) {
           strcat(dangerAngleNodes, tempBuffer);
         }
@@ -1173,7 +1188,7 @@ bool evaluateSafetyThresholds(const char *nodeName, float staLtaRatio, float rol
       if (strstr(alertAngleNodes, nodeName) == NULL) {
         char tempBuffer[78];
         snprintf(tempBuffer, sizeof(tempBuffer), "\n- %s: %s", nodeName, nodeTimers[idx].mapUrl);
-        
+
         if (strlen(alertAngleNodes) + strlen(tempBuffer) < sizeof(alertAngleNodes)) {
           strcat(alertAngleNodes, tempBuffer);
         }
@@ -1191,7 +1206,7 @@ bool evaluateSafetyThresholds(const char *nodeName, float staLtaRatio, float rol
       if (strstr(dangerVelocityNodes, nodeName) == NULL) {
         char tempBuffer[78];
         snprintf(tempBuffer, sizeof(tempBuffer), "\n- %s: %s", nodeName, nodeTimers[idx].mapUrl);
-        
+
         if (strlen(dangerVelocityNodes) + strlen(tempBuffer) < sizeof(dangerVelocityNodes)) {
           strcat(dangerVelocityNodes, tempBuffer);
         }
@@ -1218,7 +1233,7 @@ void telegramTask(void *pvParameters) {
         // Jika ada isi, copy ke lokal, lalu kosongkan yang global (\0 adalah Null Terminator)
         if (strlen(alertEarthquakeNodes) > 0) {
           strcpy(localAlertEarthquakeNodes, alertEarthquakeNodes);
-          alertEarthquakeNodes[0] = '\0'; 
+          alertEarthquakeNodes[0] = '\0';
         }
         if (strlen(dangerAngleNodes) > 0) {
           strcpy(localDangerAngleNodes, dangerAngleNodes);
@@ -1232,7 +1247,7 @@ void telegramTask(void *pvParameters) {
           strcpy(localDangerVelocityNodes, dangerVelocityNodes);
           dangerVelocityNodes[0] = '\0';
         }
-        
+
         xSemaphoreGive(alertMutex); // Buka gembok secepatnya!
       }
 

@@ -315,7 +315,7 @@ void loop() {
           Serial.println(F(" bps"));
 
           int8_t idx = -1;
-          for (uint8_t i = 0; i < NODE_COUNT; i++) {
+          for (uint8_t i = 0; i < NODE_COUNT - 1; i++) {
             if (strcmp(nodeJitterPdrs[i].name, nodeName) == 0) {
               idx = i;
               break;
@@ -957,19 +957,25 @@ void urlEncode(const char *str, char *encodedStr, size_t maxLen) {
 
   Serial.println(F("----------------"));
 
-  for (size_t i = 0; i < strlen(str); i++) {
-    // Cegah buffer overflow dengan pastikan wadah masih muat untuk 3 karakter ("%XX") + 1 karakter penutup ('\0')
-    if (encodedIdx + 3 >= maxLen - 1) {
-      Serial.println(F("Buffer overflow, string cut!"));
-      break;
-    }
-
+  for (size_t i = 0; str[i] != '\0'; i++) {
     uint8_t c = (uint8_t)str[i];
 
     // Menurut RFC 3986, huruf, angka, dan 4 simbol ini tidak boleh di-encode
     if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') {
+      // Cegah buffer overflow dengan pastikan wadah masih muat untuk 1 karakter ("X") + 1 karakter penutup ('\0')
+      if (encodedIdx + 1 >= maxLen) {
+        Serial.println(F("Buffer overflow, string cut!"));
+        break;
+      }
+
       encodedStr[encodedIdx++] = c;
     } else { // Sisanya (termasuk spasi dan simbol unik), ubah ke format %HEX
+      // Cegah buffer overflow dengan pastikan wadah masih muat untuk 3 karakter ("%XX") + 1 karakter penutup ('\0')
+      if (encodedIdx + 3 >= maxLen) {
+        Serial.println(F("Buffer overflow, string cut!"));
+        break;
+      }
+
       snprintf(&encodedStr[encodedIdx], 4, "%%%02X", c);
       encodedIdx += 3;
     }
@@ -1133,7 +1139,7 @@ bool evaluateSafetyThresholds(const char *nodeName, float staLtaRatio, float rol
   bool isDangerDetected = false;
 
   int8_t idx = -1;
-  for (uint8_t i = 0; i < NODE_COUNT; i++) {
+  for (uint8_t i = 0; i < NODE_COUNT - 1; i++) {
     if (strcmp(nodeTimers[i].name, nodeName) == 0) {
       idx = i;
       break;

@@ -475,7 +475,7 @@ void initTime() {
   Serial.println(timeInfo);
 
   if (!LAST_NODE) {
-    char jsonUnixTime[20];
+    char jsonUnixTime[32];
     snprintf(jsonUnixTime, sizeof(jsonUnixTime), "{\"t\":%llu}", unixTime);
 
     Serial.print(F("Transmit message to ID: "));
@@ -488,7 +488,7 @@ void initTime() {
 
     Serial.print(F("Sending time to Node "));
     Serial.print(PREV_NODE_ID);
-    while (!manager.sendtoWait((uint8_t *)jsonUnixTime, sizeof(jsonUnixTime), PREV_NODE_ID)) {
+    while (!manager.sendtoWait((uint8_t *)jsonUnixTime, strlen(jsonUnixTime), PREV_NODE_ID)) {
       snprintf(jsonUnixTime, sizeof(jsonUnixTime), "{\"t\":%llu}", getCurrentTimestamp(NULL, 0));
 
       Serial.print(F("."));
@@ -530,6 +530,7 @@ uint64_t getCurrentTimestamp(char *outputBuffer, size_t maxLen) {
 void initMPU() {
   Serial.println(F("----------------\r\nInitializing MPU-6050..."));
   Wire.begin();                                   // Initialize comunication
+  Wire.setTimeOut(100);                           // Set timeout to 100 ms
   Wire.beginTransmission(MPU_ADDRESS);            // Start communication with MPU6050 // MPU_ADDRESS=0x68
   Wire.write(0x6B);                               // Talk to the register 6B
   Wire.write(0x00);                               // Make reset - place a 0 into the 6B register

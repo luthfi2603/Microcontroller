@@ -1,9 +1,5 @@
-// #define TINY_GSM_DEBUG Serial
-#define TINY_GSM_YIELD() { delay(2); }
-#define TINY_GSM_RX_BUFFER 2048
-#define TINY_GSM_MODEM_SIM800
-// #include <StreamDebugger.h>
-#include <TinyGsmClient.h>
+#include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <ArduinoJson.h>
 #include <ArduinoHttpClient.h>
 #include <PubSubClient.h>
@@ -14,15 +10,13 @@
 #include "secrets.h"
 
 // Deklarasi variabel global
-/* constexpr const char *NTP_SERVER = "id.pool.ntp.org";
-constexpr const long GMT_OFFSET_SEC = 7 * 3600; // 7 Jam dikali 3600 detik
-constexpr const int DAYLIGHT_OFFSET_SEC = 0; // Di Indonesia tidak ada musim panas
+constexpr const char *NTP_SERVER = "id.pool.ntp.org";
+/* constexpr const long GMT_OFFSET_SEC = 7 * 60 * 60; // 7 Jam dikali 3600 detik
+constexpr const int DAYLIGHT_OFFSET_SEC = 0; // Di Indonesia tidak ada musim panas */
 
-constexpr const uint8_t SWITCH_PIN = 13; */
+/* constexpr const uint8_t SWITCH_PIN = 13; */
 
-constexpr const uint8_t RXD2 = 16;
-constexpr const uint8_t TXD2 = 17;
-constexpr const uint16_t NETWORK_4G_RECONNECT_INTERVAL = 5000; // 5 s
+constexpr const uint16_t WIFI_RECONNECT_INTERVAL = 5000; // 5 s
 
 constexpr const char *MQTT_TOPIC_GATEWAY_TELE_PUB = "v1/gateway/telemetry";
 constexpr const uint16_t MQTT_RECONNECT_INTERVAL = 5000; // 5 s
@@ -51,7 +45,6 @@ constexpr const uint8_t JITTER_WINDOW = 99;
 float accErrorX, accErrorY, gyroErrorX, gyroErrorY, gyroErrorZ;
 bool mpuConnectionState, lastMpuConnectionState = true;
 uint32_t currentGyroTime;
-volatile bool network4GState = true;
 
 /* // volatile untuk CPU cek langsung ke SRAM
 volatile bool receivedSwitchFlag = false;
@@ -64,19 +57,16 @@ void setSwitchFlag(void) {
   receivedSwitchFlag = true;
 } */
 
-/* StreamDebugger debugger(Serial2, Serial);
-TinyGsm modem(debugger); */
-TinyGsm modem(Serial2);
-TinyGsmClient cellularClient(modem, 0);
-TinyGsmClientSecure secureCellularClient(modem, 1); // Default bypass verifikasi sertifikat SSL
-PubSubClient mqttClient(cellularClient);
+WiFiClient wiFiClient;
+WiFiClientSecure secureWiFiClient;
+PubSubClient mqttClient(wiFiClient);
 RH_RF95 rf95(LORA_CS, LORA_IRQ);
 RHReliableDatagram manager(rf95, NODE_ID);
 SemaphoreHandle_t alertMutex; // Gembok pelindung tabrakan antar core
-SemaphoreHandle_t modemMutex;
+SemaphoreHandle_t networkMutex;
 
 // Prototipe fungsi
-void init4G();
+void initWiFi();
 void initLoRa();
 void initTime();
 uint64_t getCurrentTimestamp(char *outputBuffer, size_t maxLen);
@@ -96,12 +86,8 @@ void setup() {
   Serial.begin(115200);
   delay(2000);
 
-  // Inisialisasi jalur hardware serial 2 menuju modul 4G
-  Serial2.begin(115200, SERIAL_8N1, RXD2, TXD2);
-  delay(3000);
-
-  // Inisialisasi jaringan seluler 4G LTE menggunakan modul Air780E
-  init4G();
+  // Inisialisasi Wi-Fi
+  initWiFi();
 
   // Inisialisasi LoRa SX1276
   initLoRa();
@@ -121,7 +107,7 @@ void setup() {
 
   // Membuat gembok RTOS
   alertMutex = xSemaphoreCreateMutex();
-  modemMutex = xSemaphoreCreateMutex();
+  networkMutex = xSemaphoreCreateMutex();
 
   /* // Kalibrasi waktu
   pinMode(SWITCH_PIN, INPUT_PULLUP);
@@ -150,54 +136,37 @@ void setup() {
 
 void loop() {
   uint32_t currentTime = millis();
+  static bool lastWiFiState = true;
+  bool wiFiState = (WiFi.status() == WL_CONNECTED);
 
-  // Cek konektivitas 4G LTE dan MQTT
-  if (!network4GState) { // Kalau disconnected
-    static uint32_t lastNetwork4GReconnectTime = 0;
+  if (!wiFiState) { // Kalau disconnected
+    static uint32_t lastWiFiReconnectTime = 0;
 
-    if (currentTime - lastNetwork4GReconnectTime >= NETWORK_4G_RECONNECT_INTERVAL) {
-      if (xSemaphoreTake(modemMutex, 10 / portTICK_PERIOD_MS) == pdTRUE) {
-        Serial.println(F("----------------"));
-
-        if (!modem.isNetworkConnected()) {
-          Serial.println(F("4G LTE disconnected! Waiting for cellular signal..."));
-        } else {
-          if (!modem.isGprsConnected()) {
-            Serial.println(F("4G LTE disconnected! Reconnecting GPRS..."));
-
-            if (modem.gprsConnect(APN, GPRS_USER, GPRS_PASS)) {
-              Serial.println(F("4G LTE reconnect success!"));
-              network4GState = true;
-            } else {
-              Serial.println(F("4G LTE reconnect failed!"));
-            }
-          } else {
-            network4GState = true;
-          }
-        }
-
-        xSemaphoreGive(modemMutex);
-      }
-
-      lastNetwork4GReconnectTime = currentTime;
+    if (currentTime - lastWiFiReconnectTime >= WIFI_RECONNECT_INTERVAL) {
+      Serial.println(F("----------------\r\nWi-Fi disconnected! Attempting to reconnect..."));
+      WiFi.reconnect();
+      
+      lastWiFiReconnectTime = currentTime;
     }
   } else {
-    if (xSemaphoreTake(modemMutex, 10 / portTICK_PERIOD_MS) == pdTRUE) {
-      if (!mqttClient.connected()) {
-        static uint32_t lastMqttReconnectTime = 0;
+    if (!lastWiFiState) {
+      Serial.println(F("----------------\r\nWi-Fi reconnect success!"));
+    }
 
-        if (currentTime - lastMqttReconnectTime >= MQTT_RECONNECT_INTERVAL) {
-          mqttReconnect();
+    if (!mqttClient.connected()) {
+      static uint32_t lastMqttReconnectTime = 0;
 
-          lastMqttReconnectTime = currentTime;
-        }
-      } else { // Kalau tidak ada masalah
-        mqttClient.loop();
+      if (currentTime - lastMqttReconnectTime >= MQTT_RECONNECT_INTERVAL) {
+        mqttReconnect();
+        
+        lastMqttReconnectTime = currentTime;
       }
-
-      xSemaphoreGive(modemMutex);
+    } else { // Kalau tidak ada masalah
+      mqttClient.loop();
     }
   }
+
+  lastWiFiState = wiFiState;
 
   static uint32_t lastLoRaCheckTime = 0;
 
@@ -555,65 +524,19 @@ void loop() {
   checkMPUConnectivity();
 }
 
-/* void loop() {
-  char timeString[32];
-  uint64_t unixTime = getCurrentTimestamp(timeString, sizeof(timeString));
+void initWiFi() {
+  // Menghubungkan ke jaringan Wi-Fi
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
-  /* Serial.print(F("Unix time: "));
-  Serial.println(unixTime);
-  Serial.print(F("Current timestamp: "));
-  Serial.println(timeString);
+  Serial.print(F("\r\nConnecting to Wi-Fi"));
+  while (WiFi.status() != WL_CONNECTED) {
+    Serial.print(F("."));
 
-  vTaskDelay(100 / portTICK_PERIOD_MS); /
-
-  if (receivedSwitchFlag) {
-    receivedSwitchFlag = false;
-
-    Serial.print("----------------\r\nUnix time: ");
-    Serial.println(unixTime);
-    Serial.print(F("Current timestamp: "));
-    Serial.println(timeString);
+    delay(500);
   }
-} */
+  Serial.println(F("\r\nConnected to the Wi-Fi network!"));
 
-void init4G() {
-  Serial.println(F("\r\nInitializing 4G LTE modem..."));
-
-  Serial.println(F("Checking modem AT response..."));
-  if (!modem.testAT()) {
-    Serial.println(F("Failed! Modem not responding to AT!"));
-    while (1) { delay(1000); }
-  }
-  Serial.println(F("OK! Modem is awake!"));
-
-  // Matikan fitur Echo (Pantulan Teks) secara manual agar library tidak bingung
-  Serial2.print("ATE0\r\n");
-  delay(100);
-
-  // Blokir SMS agar tidak mengganggu jalur UART
-  Serial.println(F("Disabling SMS notifications..."));
-  Serial2.print("AT+CNMI=0,0,0,0,0\r\n");
-  delay(100);
-
-  // Bersihkan jalur UART
-  while (Serial2.available()) {
-    Serial2.read();
-  }
-
-  Serial.println(F("Waiting for network registration..."));
-  if (!modem.waitForNetwork(60000L)) {
-    Serial.println(F("Network registration failed! Check antenna or SIM status!"));
-    while (1) { delay(1000); }
-  }
-  Serial.println(F("Registered to cellular network!"));
-
-  Serial.print(F("Connecting to GPRS APN: "));
-  Serial.println(APN);
-  if (!modem.gprsConnect(APN, GPRS_USER, GPRS_PASS)) {
-    Serial.println(F("GPRS connection failed!"));
-    while (1) { delay(1000); }
-  }
-  Serial.println(F("GPRS connected! 4G LTE is active!"));
+  secureWiFiClient.setInsecure(); // Bypass verifikasi sertifikat SSL
 }
 
 void initLoRa() {
@@ -648,104 +571,45 @@ void initLoRa() {
   Serial.println(F("LoRa starting to listen..."));
 }
 
-/* void initTime() {
-  // Meminta waktu dari server internet
-  Serial.println(F("----------------\r\nWaiting for time synchronization..."));
-  configTime(GMT_OFFSET_SEC, DAYLIGHT_OFFSET_SEC, NTP_SERVER);
-
-  // Wadah untuk menyimpan data waktu
-  struct tm timeInfo;
-
-  // Cek apakah waktu sudah berhasil didapatkan
-  Serial.print(F("Getting local time."));
-  while (!getLocalTime(&timeInfo)) {
-    Serial.print(F("."));
-  }
-  Serial.println(F("\r\nLocal time is obtained!"));
-
-  // Dapatkan waktu dari sistem ESP32 secara lengkap (beserta sisa mikrodetik)
-  struct timeval tv;
-  gettimeofday(&tv, NULL);
-  // Ubah tipe datanya menjadi 64-bit (uint64_t) dan rakit menjadi milidetik
-  // (tv.tv_sec adalah detik, tv.tv_usec adalah mikrodetik)
-  uint64_t unixTime = (tv.tv_sec * 1000LL) + (tv.tv_usec * 0.001);
-  // Masukkan ke JSON untuk dikirim ke node sebelahnya
-  Serial.print(F("Unix time: "));
-  Serial.println(unixTime);
-  // Tampilkan waktu ke Serial Monitor dengan format lengkap
-  Serial.print(F("Current timestamp: "));
-  Serial.println(&timeInfo, "%A, %d %B %Y %H:%M:%S");
-} */
-
 void initTime() {
-  Serial.println(F("----------------\r\nWaiting for cellular time synchronization (NITZ)..."));
+  Serial.println(F("----------------\r\nWaiting for time synchronization..."));
 
-  int year = 0, month = 0, day = 0, hour = 0, min = 0, sec = 0;
-  float timeZone = 0;
   uint8_t retry = 0;
   bool timeSynced = false;
+  uint64_t unixTime = 0;
+  struct tm timeInfo = {0};
 
   Serial.print(F("Getting network time"));
+  configTzTime("WIB-7", NTP_SERVER);
+  // configTime(0, DAYLIGHT_OFFSET_SEC, NTP_SERVER);
 
-  // Looping maksimal 5 kali (jeda 2 detik) agar tidak Infinite Loop jika sinyal jelek
   while (retry < 5) {
-    // Tarik waktu dari menara BTS via AT+CCLK? bawaan TinyGSM
-    if (modem.getNetworkTime(&year, &month, &day, &hour, &min, &sec, &timeZone)) {
+    if (getLocalTime(&timeInfo, 1000U)) {
       timeSynced = true;
       break;
     }
     Serial.print(F("."));
-    delay(2000);
     retry++;
   }
 
-  // Atur zona waktu ESP32 agar perhitungan unix time akurat
-  setenv("TZ", "WIB-7", 1);
-  tzset();
-
-  uint64_t unixTime = 0;
-  struct tm timeInfo = {0};
-  struct timeval tv;
-  tv.tv_usec = 0; // NITZ tidak memberikan mikrodetik, jadi atur ke 0
-
   if (timeSynced) {
-    Serial.println(F("\r\nCellular time is obtained!"));
-
-    // TinyGSM kadang memberikan tahun dalam 2 digit (misal: 26 untuk 2026)
-    if (year < 2000) year += 2000;
-
-    // Rakit ke dalam struct tm standar C/C++
-    timeInfo.tm_year = year - 1900; // Standar C: Tahun sejak 1900
-    timeInfo.tm_mon  = month - 1;   // Standar C: Bulan dimulai dari 0 (Jan - Des)
-    timeInfo.tm_mday = day;
-    timeInfo.tm_hour = hour;
-    timeInfo.tm_min  = min;
-    timeInfo.tm_sec  = sec;
-
-    // Konversi format kalender menjadi angka unix time (detik sejak 1 Januari 1970)
-    time_t epoch = mktime(&timeInfo);
-
-    // Sinkronisasi waktu ini ke dalam jam internal (RTC) ESP32
-    tv.tv_sec = epoch;
+    Serial.println(F("\r\nUnix time is obtained!"));
 
     // Konversi ke format milidetik
-    unixTime = (uint64_t)epoch * 1000ULL;
+    unixTime = (uint64_t)time(NULL) * 1000ULL;
   } else {
-    // Jalur penyelamatan jika tidak mendapatkan waktu dari BTS
+    // Jalur penyelamatan jika tidak mendapatkan waktu dari NTP Server
     Serial.println(F("\r\nFailed to get network time! System will proceed with unix time 0!"));
 
-    timeInfo.tm_year = 70;
-    timeInfo.tm_mday = 1;
-    timeInfo.tm_hour = 7;
+    struct timeval tv;
+    tv.tv_sec = 0; // Setel RTC ESP32 secara manual ke 0 agar timer millis()/gettimeofday() bisa mulai jalan
+    tv.tv_usec = 0;
 
-    // Agar struktur lainnya terisi otomatis dengan benar
-    mktime(&timeInfo);
+    settimeofday(&tv, NULL); // Dari titik ini, jam internal ESP32 sudah berjalan akurat secara mandiri
 
-    // Setel RTC ESP32 secara manual ke 0 agar timer millis()/gettimeofday() bisa mulai jalan
-    tv.tv_sec = 0;
+    time_t now = time(NULL);
+    localtime_r(&now, &timeInfo);
   }
-
-  settimeofday(&tv, NULL); // Dari titik ini, jam internal ESP32 sudah berjalan akurat secara mandiri
 
   // Tampilkan waktu
   Serial.print(F("Unix time: "));
@@ -999,74 +863,36 @@ void sendMessageToTelegram(const char *message) {
   Serial.print(F("https://api.telegram.org"));
   Serial.println(apiPath);
 
-  if (xSemaphoreTake(modemMutex, portMAX_DELAY) == pdTRUE) {
-    HttpClient http(secureCellularClient, "api.telegram.org", 443);
-    http.connectionKeepAlive();
-    http.setHttpResponseTimeout(5000);
+  if (xSemaphoreTake(networkMutex, portMAX_DELAY) == pdTRUE) {
+    if (WiFi.status() == WL_CONNECTED) {
+      HttpClient http(secureWiFiClient, "api.telegram.org", 443);
+      http.connectionKeepAlive();
+      http.setHttpResponseTimeout(5000);
 
-    int result = http.get(apiPath);
+      int result = http.get(apiPath);
 
-    Serial.print(F("----------------\r\nGET result code: "));
-    Serial.println(result);
+      Serial.print(F("----------------\r\nGET result code: "));
+      Serial.println(result);
 
-    int httpResponseStatusCode = http.responseStatusCode();
+      int httpResponseStatusCode = http.responseStatusCode();
 
-    if (httpResponseStatusCode > 0) {
-      Serial.print(F("HTTP response status code: "));
-      Serial.println(httpResponseStatusCode);
+      if (httpResponseStatusCode > 0) {
+        Serial.print(F("HTTP response status code: "));
+        Serial.println(httpResponseStatusCode);
 
-      String response = http.responseBody();
+        String response = http.responseBody();
 
-      Serial.println(F("Server response:"));
-      Serial.println(response);
-    } else {
-      Serial.print(F("HTTP error code: "));
-      Serial.println(httpResponseStatusCode);
-
-      network4GState = false; // Kalau gagal request
-    }
-
-    http.stop();
-
-    /* if (secureCellularClient.connect("api.telegram.org", 443)) {
-      Serial.print(F("connected="));
-      Serial.println(secureCellularClient.connected());
-      Serial.print(F("available="));
-      Serial.println(secureCellularClient.available());
-
-      secureCellularClient.print(
-        String("GET ") + apiPath + " HTTP/1.1\r\n"
-        "Host: api.telegram.org\r\n\r\n"
-      );
-
-      uint32_t start = millis();
-
-      while (millis() - start < 10000) {
-        int avail = secureCellularClient.available();
-
-        if (avail > 0) {
-          Serial.print(F("avail="));
-          Serial.println(avail);
-        }
-
-        while (secureCellularClient.available()) {
-          char c = secureCellularClient.read();
-          Serial.write(c);
-          start = millis();
-        }
-
-        if (!secureCellularClient.connected()) {
-          Serial.println(F("DISCONNECTED"));
-          break;
-        }
-
-        delay(100);
+        Serial.println(F("Server response:"));
+        Serial.println(response);
+      } else {
+        Serial.print(F("HTTP error code: "));
+        Serial.println(httpResponseStatusCode);
       }
 
-      secureCellularClient.stop();
-    } */
-
-    xSemaphoreGive(modemMutex);
+      http.stop();
+    }
+    
+    xSemaphoreGive(networkMutex);
   }
 }
 
@@ -1086,16 +912,14 @@ void buildJsonPayload(char *outputBuffer, size_t maxLen, const char *nodeName, f
 }
 
 void mqttPublishToThingsBoard(const char *jsonPayload) {
-  if (xSemaphoreTake(modemMutex, portMAX_DELAY) == pdTRUE) {
+  if (xSemaphoreTake(networkMutex, portMAX_DELAY) == pdTRUE) {
     Serial.println(F("----------------\r\nPublish:"));
     Serial.println(jsonPayload);
 
-    // Cek apakah 4G LTE dan MQTT masih terhubung
-    if (network4GState && mqttClient.connected()) {
+    // Cek apakah Wi-Fi dan MQTT masih terhubung
+    if (WiFi.status() == WL_CONNECTED && mqttClient.connected()) {
       if (!mqttClient.publish(MQTT_TOPIC_GATEWAY_TELE_PUB, jsonPayload)) {
-        Serial.println(F("Failed to publish! 4G LTE disconnected!"));
-
-        network4GState = false;
+        Serial.println(F("Failed to publish!"));
       }
 
       char timeString[32];
@@ -1106,10 +930,10 @@ void mqttPublishToThingsBoard(const char *jsonPayload) {
       Serial.print(F("Current timestamp: "));
       Serial.println(timeString);
     } else {
-      Serial.println(F("Failed to publish! 4G LTE or MQTT Broker disconnected!"));
+      Serial.println(F("Failed to publish! Wi-Fi or MQTT Broker disconnected!"));
     }
 
-    xSemaphoreGive(modemMutex);
+    xSemaphoreGive(networkMutex);
   }
 }
 
@@ -1229,7 +1053,7 @@ bool evaluateSafetyThresholds(const char *nodeName, float staLtaRatio, float rol
 // RTOS Core 0 untuk menangani pengiriman pesan ke telegram
 void telegramTask(void *pvParameters) {
   for (;;) { // Looping abadi khusus Core 0
-    if (network4GState) { // Kalau terhubung ke internet
+    if (WiFi.status() == WL_CONNECTED) { // Kalau terhubung ke internet
       char localAlertEarthquakeNodes[256] = "";
       char localDangerAngleNodes[256] = "";
       char localAlertAngleNodes[256] = "";

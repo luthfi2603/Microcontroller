@@ -21,6 +21,12 @@ constexpr const uint8_t NODE_ID = 1; // Alamat ID node ini
 constexpr const uint8_t RECEIVER_ID = 0; // Alamat ID tujuan
 constexpr const uint8_t PREV_NODE_ID = 2; // Alamat ID node sebelumnya
 constexpr const bool LAST_NODE = false; // Apakah node terakhir
+/* constexpr const char *NODE_NAME = "Node 2";
+constexpr const char *PREV_NODE_NAME = "Node 3";
+constexpr const uint8_t NODE_ID = 2; // Alamat ID node ini
+constexpr const uint8_t RECEIVER_ID = 1; // Alamat ID tujuan
+constexpr const uint8_t PREV_NODE_ID = 3; // Alamat ID node sebelumnya
+constexpr const bool LAST_NODE = true; // Apakah node terakhir */
 
 constexpr const float RAD_TO_DEG_F = 57.29577951F; // 180 / PI(3.14)
 constexpr const float ACCEL_SCALE = 1.0F / 16384.0F; // / 16384
@@ -109,6 +115,22 @@ void loop() {
 
       if (manager.init() && rf95.setFrequency(923.2F)) {
         // rf95.setTxPower(5, false);
+
+        /* // Untuk konfigurasi rendah
+        rf95.setTxPower(5, false);
+        rf95.setSpreadingFactor(7);
+        rf95.setSignalBandwidth(500000L); // 500 kHz
+
+        // Untuk konfigurasi sedang
+        rf95.setTxPower(13, false);
+        rf95.setSpreadingFactor(9);
+        rf95.setSignalBandwidth(250000L); // 250 kHz
+
+        // Untuk konfigurasi tinggi
+        rf95.setTxPower(15, false);
+        rf95.setSpreadingFactor(7);
+        rf95.setSignalBandwidth(125000L); // 125 kHz */
+
         Serial.println(F("LoRa reinit success!"));
       } else {
         Serial.println(F("LoRa reinit failed!"));
@@ -120,6 +142,8 @@ void loop() {
 
   static char pendingLoRaPayload[252] = ""; // Wadah sementara untuk string JSON LoRa
   static bool hasPendingLoRaData = false; // Bendera penanda ada data LoRa yang antre
+  static int16_t rssi = 0;
+  static int snr = 0;
 
   // Receive LoRa data
   if (manager.available()) {
@@ -134,8 +158,8 @@ void loop() {
       const char *loRaPayload = (char*)dataBuffer; // Byte jadi c-string
 
       // Ambil nilai RSSI (Kekuatan Sinyal)
-      int16_t rssi = rf95.lastRssi();
-      int snr = rf95.lastSNR();
+      rssi = rf95.lastRssi();
+      snr = rf95.lastSNR();
 
       Serial.print(F("----------------\r\nMessage received from ID: "));
       Serial.println(fromAddress);
@@ -171,6 +195,8 @@ void loop() {
             uint16_t latency = getCurrentTimestamp(NULL, 0) - unixTime;
             Serial.print(latency);
             Serial.println(F(" ms"));
+
+            break;
           }
         }
 
@@ -276,6 +302,13 @@ void loop() {
       mpuConnectionState = false;
     }
 
+    /* staLtaRatio = 2.99;
+    roll = 1.99;
+    pitch = 1.99;
+    gyroX = 9.99;
+    gyroY = 9.99;
+    gyroZ = 9.99; */
+
     bool dangerState = evaluateSafetyThresholds(NODE_NAME, staLtaRatio, roll, pitch, gyroX, gyroY, gyroZ);
     static bool lastDangerState = false;
 
@@ -284,6 +317,27 @@ void loop() {
       if (dangerState && !lastDangerState) { // Kalau node ini melewati threshold dan ada LoRa payload yang diterima
         JsonDocument json;
         deserializeJson(json, pendingLoRaPayload);
+
+        // Sisipkan RSSI dan SNR ke data node pengirim (jika ada data yang menumpang)
+        JsonObject root = json.as<JsonObject>();
+        for (JsonPair kv : root) {
+          const char *nodeName = kv.key().c_str(); // Mengambil key atau nama "Node 1" atau "Node 2"
+
+          if (strcmp(nodeName, PREV_NODE_NAME) == 0) {
+            // Ambil array dari key yang sudah ada (misal: "Node 2")
+            JsonArray existingArray = kv.value().as<JsonArray>();
+
+            // Ambil objek pertama di dalam array tersebut
+            JsonObject existingNodeData = existingArray[0];
+
+            // Tambahkan nilai rssi dan snr ke objek pengirim tersebut
+            existingNodeData["rssi"] = rssi;
+            existingNodeData["snr"] = snr;
+
+            break;
+          }
+        }
+
         JsonObject nodeData = json[NODE_NAME].add<JsonObject>();
 
         nodeData["acc_dyn"] = round(accDyn * 100.0F) * 0.01F;
@@ -311,8 +365,13 @@ void loop() {
         } else { // Terlalu besar! Batalkan penggabungan, kirim berurutan secara utuh!
           Serial.println(F("----------------\r\nMerged JSON exceeds 251 bytes! Splitting transmission..."));
 
+          json.remove(NODE_NAME);
+
           // Meneruskan LoRa payload
-          loRaTransmit(pendingLoRaPayload);
+          char forwardedPayload[256];
+          serializeJson(json, forwardedPayload);
+
+          loRaTransmit(forwardedPayload);
 
           // Transmit data node ini
           char jsonPayload[256];
@@ -323,7 +382,33 @@ void loop() {
 
         lastTxTime = currentTime;
       } else { // Kalau node ini tidak melewati threshold hanya meneruskan LoRa payload
-        loRaTransmit(pendingLoRaPayload);
+        JsonDocument json;
+        deserializeJson(json, pendingLoRaPayload);
+
+        // Sisipkan RSSI dan SNR ke data node pengirim (jika ada data yang menumpang)
+        JsonObject root = json.as<JsonObject>();
+        for (JsonPair kv : root) {
+          const char *nodeName = kv.key().c_str(); // Mengambil key atau nama "Node 1" atau "Node 2"
+
+          if (strcmp(nodeName, PREV_NODE_NAME) == 0) {
+            // Ambil array dari key yang sudah ada (misal: "Node 2")
+            JsonArray existingArray = kv.value().as<JsonArray>();
+
+            // Ambil objek pertama di dalam array tersebut
+            JsonObject existingNodeData = existingArray[0];
+
+            // Tambahkan nilai rssi dan snr ke objek pengirim tersebut
+            existingNodeData["rssi"] = rssi;
+            existingNodeData["snr"] = snr;
+
+            break;
+          }
+        }
+
+        char jsonPayload[256];
+        serializeJson(json, jsonPayload);
+
+        loRaTransmit(jsonPayload);
       }
 
       hasPendingLoRaData = false;
@@ -405,8 +490,23 @@ void initLoRa() {
   // Konfigurasi power (Default 13 dBm library RadioHead, maksimal 20 dBm untuk SX1276)
   // rf95.setTxPower(5, false);
 
+  /* // Untuk konfigurasi rendah
+  rf95.setTxPower(5, false);
+  rf95.setSpreadingFactor(7);
+  rf95.setSignalBandwidth(500000L); // 500 kHz
+
+  // Untuk konfigurasi sedang
+  rf95.setTxPower(13, false);
+  rf95.setSpreadingFactor(9);
+  rf95.setSignalBandwidth(250000L); // 250 kHz
+
+  // Untuk konfigurasi tinggi
+  rf95.setTxPower(15, false);
+  rf95.setSpreadingFactor(7);
+  rf95.setSignalBandwidth(125000L); // 125 kHz */
+
   manager.setRetries(3); // Ubah jumlah pengiriman ulang (default = 3)
-  manager.setTimeout(200); // Waktu tunggu ACK dalam milidetik (default = 200)
+  manager.setTimeout(1000); // Waktu tunggu ACK dalam milidetik (default = 200)
 
   Serial.println(F("LoRa starting to listen..."));
 }
@@ -495,7 +595,7 @@ void initTime() {
     }
 
     manager.setRetries(3);
-    manager.setTimeout(200);
+    manager.setTimeout(1000);
 
     Serial.println(F("\r\nTransmission success! Validated by receiver!"));
   }

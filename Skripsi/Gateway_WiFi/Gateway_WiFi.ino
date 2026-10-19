@@ -145,7 +145,7 @@ void loop() {
     if (currentTime - lastWiFiReconnectTime >= WIFI_RECONNECT_INTERVAL) {
       Serial.println(F("----------------\r\nWi-Fi disconnected! Attempting to reconnect..."));
       WiFi.reconnect();
-      
+
       lastWiFiReconnectTime = currentTime;
     }
   } else {
@@ -158,7 +158,7 @@ void loop() {
 
       if (currentTime - lastMqttReconnectTime >= MQTT_RECONNECT_INTERVAL) {
         mqttReconnect();
-        
+
         lastMqttReconnectTime = currentTime;
       }
     } else { // Kalau tidak ada masalah
@@ -188,6 +188,22 @@ void loop() {
 
       if (manager.init() && rf95.setFrequency(923.2F)) {
         // rf95.setTxPower(5, false);
+
+        /* // Untuk konfigurasi rendah
+        rf95.setTxPower(5, false);
+        rf95.setSpreadingFactor(7);
+        rf95.setSignalBandwidth(500000L); // 500 kHz
+
+        // Untuk konfigurasi sedang
+        rf95.setTxPower(13, false);
+        rf95.setSpreadingFactor(9);
+        rf95.setSignalBandwidth(250000L); // 250 kHz
+
+        // Untuk konfigurasi tinggi
+        rf95.setTxPower(15, false);
+        rf95.setSpreadingFactor(7);
+        rf95.setSignalBandwidth(125000L); // 125 kHz */
+
         Serial.println(F("LoRa reinit success!"));
       } else {
         Serial.println(F("LoRa reinit failed!"));
@@ -568,6 +584,21 @@ void initLoRa() {
   // Konfigurasi power (Default 13 dBm library RadioHead, maksimal 20 dBm untuk SX1276)
   // rf95.setTxPower(5, false);
 
+  /* // Untuk konfigurasi rendah
+  rf95.setTxPower(5, false);
+  rf95.setSpreadingFactor(7);
+  rf95.setSignalBandwidth(500000L); // 500 kHz
+
+  // Untuk konfigurasi sedang
+  rf95.setTxPower(13, false);
+  rf95.setSpreadingFactor(9);
+  rf95.setSignalBandwidth(250000L); // 250 kHz
+
+  // Untuk konfigurasi tinggi
+  rf95.setTxPower(15, false);
+  rf95.setSpreadingFactor(7);
+  rf95.setSignalBandwidth(125000L); // 125 kHz */
+
   Serial.println(F("LoRa starting to listen..."));
 }
 
@@ -891,7 +922,7 @@ void sendMessageToTelegram(const char *message) {
 
       http.stop();
     }
-    
+
     xSemaphoreGive(networkMutex);
   }
 }
